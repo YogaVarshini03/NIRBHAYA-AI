@@ -53,11 +53,16 @@ export const SafeRoutePage: React.FC = () => {
       return;
     }
     setDestinationError('');
-    setIsAnalyzing(true);
+    if (!gpsLoc) {
+      setDestinationError('GPS unavailable — please enable location permission to calculate routes from your location.');
+      showToast('GPS unavailable — please enable location access.', 'warning');
+      setIsAnalyzing(false);
+      return;
+    }
 
     try {
-      const lat = gpsLoc?.latitude || 13.0827;
-      const lng = gpsLoc?.longitude || 80.2707;
+      const lat = gpsLoc.latitude;
+      const lng = gpsLoc.longitude;
       const computed = await routeService.calculateRealRoutes(lat, lng, destination);
       setRoutes(computed);
       if (computed.length > 0) {

@@ -60,7 +60,7 @@ export function requireRole(allowedRoles: string[]) {
 }
 
 // POST /api/auth/login
-authRouter.post('/login', (req: Request, res: Response) => {
+authRouter.post('/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -68,7 +68,7 @@ authRouter.post('/login', (req: Request, res: Response) => {
   }
 
   try {
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.trim().toLowerCase()) as any;
+    const user = await db.queryOne('SELECT * FROM users WHERE email = ?', [email.trim().toLowerCase()]) as any;
 
     if (!user) {
       return res.status(401).json({ success: false, error: 'Invalid email or password.' });
@@ -104,7 +104,7 @@ authRouter.post('/login', (req: Request, res: Response) => {
 });
 
 // POST /api/auth/register
-authRouter.post('/register', (req: Request, res: Response) => {
+authRouter.post('/register', async (req: Request, res: Response) => {
   const { name, email, password, phone, emergencyContact } = req.body;
 
   if (!name || !email || !password || !phone) {
@@ -112,7 +112,7 @@ authRouter.post('/register', (req: Request, res: Response) => {
   }
 
   try {
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.trim().toLowerCase());
+    const existing = await db.queryOne('SELECT id FROM users WHERE email = ?', [email.trim().toLowerCase()]);
     if (existing) {
       return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
     }
@@ -121,17 +121,17 @@ authRouter.post('/register', (req: Request, res: Response) => {
     const passwordHash = bcrypt.hashSync(password, 10);
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO users (id, name, email, password_hash, phone, role, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(userId, name.trim(), email.trim().toLowerCase(), passwordHash, phone.trim(), 'USER', now);
+    `, [userId, name.trim(), email.trim().toLowerCase(), passwordHash, phone.trim(), 'USER', now]);
 
     // If emergency contact provided, insert as primary contact
     if (emergencyContact) {
-      db.prepare(`
+      await db.execute(`
         INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `, [
         `cnt_${uuidv4()}`,
         userId,
         'Primary Contact',
@@ -142,7 +142,7 @@ authRouter.post('/register', (req: Request, res: Response) => {
         'All Channels',
         now,
         now
-      );
+      ]);
     }
 
     const token = jwt.sign(
@@ -170,9 +170,9 @@ authRouter.post('/register', (req: Request, res: Response) => {
 });
 
 // GET /api/user/me
-authRouter.get('/me', authenticateToken, (req: Request, res: Response) => {
+authRouter.get('/me', authenticateToken, async (req: Request, res: Response) => {
   const authUser = (req as any).user;
-  const user = db.prepare('SELECT id, name, email, phone, role, created_at FROM users WHERE id = ?').get(authUser.id) as any;
+  const user = await db.queryOne('SELECT id, name, email, phone, role, created_at FROM users WHERE id = ?', [authUser.id]) as any;
 
   if (!user) {
     return res.status(404).json({ success: false, error: 'User not found.' });

@@ -100,7 +100,7 @@ export type IncidentStatus = 'TRIGGERED' | 'LOCATION_ACQUIRED' | 'CONTACTS_NOTIF
 export interface EmergencyIncident {
   id: string;
   timestamp: string;
-  riskLevel: 'HIGH' | 'CRITICAL';
+  riskLevel: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW';
   riskScore: number;
   location: string;
   coordinates: { lat: number; lng: number };

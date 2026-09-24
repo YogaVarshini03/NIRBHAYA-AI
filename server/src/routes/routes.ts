@@ -70,12 +70,20 @@ async function resolveDestinationCoordinates(query: string, originLat: number, o
 routesRouter.post('/calculate', async (req: Request, res: Response): Promise<void> => {
   try {
     const {
-      originLat = 13.0827,
-      originLng = 80.2707,
+      originLat,
+      originLng,
       destLat,
       destLng,
-      destination = 'T. Nagar',
+      destination = 'Safe Sanctuary',
     } = req.body;
+
+    if (originLat === undefined || originLng === undefined || typeof originLat !== 'number' || typeof originLng !== 'number') {
+      res.status(400).json({
+        success: false,
+        error: 'GPS location required — valid origin coordinates are needed to calculate a safe route.',
+      });
+      return;
+    }
 
     let targetLat = destLat;
     let targetLng = destLng;

@@ -28,13 +28,55 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Initialize Database schema and seeds
-initDatabase();
+await initDatabase();
 
-// Middleware
+// CORS configuration (Rule 6: Production CORS with Vercel and LAN support)
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.CORS_ORIGIN,
+  'http://localhost:3000',
+  'https://localhost:3000',
+  'http://127.0.0.1:3000',
+  'https://127.0.0.1:3000',
+  'http://localhost:5173',
+  'https://localhost:5173',
+].filter(Boolean) as string[];
+
 app.use(cors({
-  origin: '*', // Allow all origins for dev/tunnel access
+  origin: (origin, callback) => {
+    // Allow non-browser requests (mobile app, curl, server-to-server)
+    if (!origin) return callback(null, true);
+
+    // Explicitly allowed frontend origins
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    // Allow all Vercel deployments (*.vercel.app)
+    if (/^https:\/\/[a-zA-Z0-9_-]+\.vercel\.app$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    // Allow local network and phone testing IPs
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    // Allow Railway's own origin
+    if (origin.includes('railway.app')) {
+      return callback(null, true);
+    }
+
+    if (process.env.NODE_ENV === 'production' && process.env.APP_MODE === 'production') {
+      console.warn(`[CORS] Rejected origin: ${origin}`);
+      return callback(new Error(`CORS blocked request from: ${origin}`));
+    }
+
+    return callback(null, true);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
+
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
@@ -56,10 +98,16 @@ app.use('/api/risk', riskRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/notifications', notificationsRouter);
 
-// Health check endpoint (Rule 17)
-app.get('/api/health', (req, res) => {
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as any;
-  const incidentCount = db.prepare('SELECT COUNT(*) as count FROM emergency_incidents').get() as any;
+// Health check endpoint (Rule 17, Phase 3)
+app.get('/api/health', async (req, res) => {
+  let userCount: any = { count: 0 };
+  let incidentCount: any = { count: 0 };
+  try {
+    userCount = (await db.queryOne('SELECT COUNT(*) as count FROM users')) || { count: 0 };
+    incidentCount = (await db.queryOne('SELECT COUNT(*) as count FROM emergency_incidents')) || { count: 0 };
+  } catch (err: any) {
+    console.error('[HealthCheck] DB query error:', err.message);
+  }
 
   const smsConfigured = Boolean(
     process.env.SMS_PROVIDER_ACCOUNT_SID &&
@@ -79,9 +127,10 @@ app.get('/api/health', (req, res) => {
     status: 'ONLINE',
     system: 'NIRBHAYA AI Proactive Safety Backend & Telemetry Server',
     appMode: process.env.APP_MODE || 'production',
+    environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString(),
     services: {
-      database: 'CONNECTED',
+      database: `CONNECTED (${db.getEngine()})`,
       websocket: 'READY',
       routing: 'AVAILABLE',
       sms: smsConfigured ? 'CONFIGURED' : 'NOT CONFIGURED',
@@ -96,6 +145,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Serve frontend static build if dist/ exists (fallback for direct Railway web access)
+const distDir = path.join(__dirname, '..', '..', 'dist');
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/ws')) {
+      return next();
+    }
+    if (req.method === 'GET') {
+      return res.sendFile(path.join(distDir, 'index.html'));
+    }
+    next();
+  });
+}
+
 // Create HTTP server and mount WebSocket
 const server = http.createServer(app);
 setupWebSocket(server);
@@ -103,7 +167,7 @@ setupWebSocket(server);
 server.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`🛡️  NIRBHAYA AI Backend Server Running on Port ${PORT}`);
-  console.log(`📡 WebSocket Real-time Telemetry Gateway at ws://localhost:${PORT}/ws`);
+  console.log(`📡 WebSocket Real-time Telemetry Gateway active on /ws`);
   console.log(`📁 Evidence Vault Uploads at ${uploadsDir}`);
   console.log(`=======================================================`);
 });

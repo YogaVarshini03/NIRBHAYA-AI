@@ -59,10 +59,10 @@ Live tracking: ${params.trackingUrl}`;
     console.warn(`[SMS Service] Warning: ${errorMsg}`);
 
     // Persist as FAILED in database (Rule 39: Never pretend success)
-    db.prepare(`
+    await db.execute(`
       INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       notificationId,
       params.incidentId,
       formattedTo,
@@ -72,7 +72,7 @@ Live tracking: ${params.trackingUrl}`;
       null,
       errorMsg,
       new Date().toISOString()
-    );
+    ]);
 
     return {
       success: false,
@@ -107,10 +107,10 @@ Live tracking: ${params.trackingUrl}`;
       const errMsg = data.message || `Twilio error code: ${data.code}`;
       console.error(`[SMS Service] Twilio request rejected:`, errMsg);
 
-      db.prepare(`
+      await db.execute(`
         INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `, [
         notificationId,
         params.incidentId,
         formattedTo,
@@ -120,7 +120,7 @@ Live tracking: ${params.trackingUrl}`;
         null,
         errMsg,
         new Date().toISOString()
-      );
+      ]);
 
       return {
         success: false,
@@ -131,10 +131,10 @@ Live tracking: ${params.trackingUrl}`;
 
     console.log(`[SMS Service] Twilio SMS successfully accepted! SID: ${data.sid}`);
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       notificationId,
       params.incidentId,
       formattedTo,
@@ -144,7 +144,7 @@ Live tracking: ${params.trackingUrl}`;
       data.sid,
       null,
       new Date().toISOString()
-    );
+    ]);
 
     return {
       success: true,
@@ -155,10 +155,10 @@ Live tracking: ${params.trackingUrl}`;
     const errMsg = err?.message || 'Network error communicating with SMS gateway';
     console.error(`[SMS Service] Exception sending SMS:`, err);
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       notificationId,
       params.incidentId,
       formattedTo,
@@ -168,7 +168,7 @@ Live tracking: ${params.trackingUrl}`;
       null,
       errMsg,
       new Date().toISOString()
-    );
+    ]);
 
     return {
       success: false,

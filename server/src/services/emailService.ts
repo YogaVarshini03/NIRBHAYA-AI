@@ -160,10 +160,10 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
 
       console.log(`[Email Service] SMTP email accepted! MessageId: ${info.messageId}`);
 
-      db.prepare(`
+      await db.execute(`
         INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(notificationId, params.incidentId, params.toEmail, 'EMAIL', 'SENT', 'Gmail SMTP', info.messageId, null, timestampStr);
+      `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'SENT', 'Gmail SMTP', info.messageId, null, timestampStr]);
 
       return {
         success: true,
@@ -175,10 +175,10 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
       const errMsg = err?.message || 'SMTP dispatch error';
       console.error('[Email Service] SMTP exception:', errMsg);
 
-      db.prepare(`
+      await db.execute(`
         INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Gmail SMTP', null, errMsg, timestampStr);
+      `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Gmail SMTP', null, errMsg, timestampStr]);
 
       return { success: false, error: errMsg, provider: 'Gmail SMTP' };
     }
@@ -231,30 +231,30 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
         const errorMsg = resData.message || `Resend HTTP error ${res.status}`;
         console.error('[Email Service] Resend dispatch rejected:', errorMsg);
 
-        db.prepare(`
+        await db.execute(`
           INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Resend', null, errorMsg, timestampStr);
+        `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Resend', null, errorMsg, timestampStr]);
 
         return { success: false, error: errorMsg, provider: 'Resend' };
       }
 
       console.log(`[Email Service] Resend email accepted! ID: ${resData.id}`);
 
-      db.prepare(`
+      await db.execute(`
         INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(notificationId, params.incidentId, params.toEmail, 'EMAIL', 'SENT', 'Resend', resData.id, null, timestampStr);
+      `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'SENT', 'Resend', resData.id, null, timestampStr]);
 
       return { success: true, providerMessageId: resData.id, provider: 'Resend' };
     } catch (err: any) {
       const errMsg = err?.message || 'Failed connecting to Resend API';
       console.error('[Email Service] Resend exception:', errMsg);
 
-      db.prepare(`
+      await db.execute(`
         INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Resend', null, errMsg, timestampStr);
+      `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Resend', null, errMsg, timestampStr]);
 
       return { success: false, error: errMsg, provider: 'Resend' };
     }
@@ -264,10 +264,10 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
   const unconfiguredMsg = 'Email credentials not configured in environment (SMTP_HOST, SMTP_USER, SMTP_PASS, or EMAIL_API_KEY).';
   console.warn(`[Email Service] Warning: ${unconfiguredMsg}`);
 
-  db.prepare(`
+  await db.execute(`
     INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Email Gateway (Unconfigured)', null, unconfiguredMsg, timestampStr);
+  `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Email Gateway (Unconfigured)', null, unconfiguredMsg, timestampStr]);
 
   return {
     success: false,

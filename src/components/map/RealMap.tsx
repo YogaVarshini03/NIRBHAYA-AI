@@ -55,12 +55,13 @@ export const RealMap: React.FC<RealMapProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    const initialLat = centerLat || currentGps?.latitude || 13.0827;
-    const initialLng = centerLng || currentGps?.longitude || 80.2707;
+    const hasInitialCoord = Boolean(centerLat && centerLng) || Boolean(currentGps?.latitude && currentGps?.longitude);
+    const initialLat = centerLat || currentGps?.latitude || 20.5937;
+    const initialLng = centerLng || currentGps?.longitude || 78.9629;
 
     const map = L.map(mapContainerRef.current, {
       center: [initialLat, initialLng],
-      zoom,
+      zoom: hasInitialCoord ? zoom : 5,
       zoomControl: false,
     });
 
@@ -234,10 +235,12 @@ export const RealMap: React.FC<RealMapProps> = ({
   useEffect(() => {
     if (!mapInstanceRef.current || !safePointMarkersRef.current || !showSafePoints) return;
 
-    safePointMarkersRef.current.clearLayers();
+    if (!centerLat && !currentGps?.latitude) {
+      return; // Do not plot safe points until genuine location is acquired
+    }
 
-    const baseLat = centerLat || currentGps?.latitude || 13.0827;
-    const baseLng = centerLng || currentGps?.longitude || 80.2707;
+    const baseLat = centerLat || currentGps!.latitude;
+    const baseLng = centerLng || currentGps!.longitude;
 
     const safePoints = [
       { name: 'All-Women Police Station (24x7)', lat: baseLat + 0.006, lng: baseLng + 0.005, type: 'police' },
@@ -283,10 +286,10 @@ export const RealMap: React.FC<RealMapProps> = ({
           <span className={`relative inline-flex rounded-full h-2 w-2 ${gpsStatus === 'LIVE_GPS' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
         </span>
         <span className="font-semibold text-slate-200">
-          {gpsStatus === 'LIVE_GPS' ? 'Live GPS' : 'Acquiring GPS...'}
+          {gpsStatus === 'LIVE_GPS' && currentGps ? 'Live GPS' : 'GPS unavailable'}
         </span>
         <span className="text-slate-400 border-l border-slate-700 pl-2">
-          {currentGps ? `±${currentGps.accuracy}m` : '±--m'}
+          {currentGps ? `±${currentGps.accuracy}m` : 'No fix'}
         </span>
       </div>
 

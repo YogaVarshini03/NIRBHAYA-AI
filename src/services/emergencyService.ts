@@ -18,20 +18,18 @@ export const DEFAULT_RESPONDER: Responder = {
 };
 
 export const DEFAULT_INCIDENT: EmergencyIncident = {
-  id: 'NG-1001',
+  id: 'NG-STANDBY',
   timestamp: new Date().toLocaleTimeString(),
-  riskLevel: 'CRITICAL',
-  riskScore: 88,
-  location: 'Live GPS Telemetry',
-  coordinates: { lat: 13.0827, lng: 80.2707 },
-  status: 'TRIGGERED',
-  userStatus: 'User In Distress / Active SOS Beacon',
+  riskLevel: 'LOW',
+  riskScore: 10,
+  location: 'No active emergency incident',
+  coordinates: { lat: 0, lng: 0 },
+  status: 'RESOLVED',
+  userStatus: 'All Systems Normal',
   elapsedSeconds: 0,
   responder: DEFAULT_RESPONDER,
-  evidenceItems: DEFAULT_EVIDENCE,
-  timeline: [
-    { id: '1', step: 'Emergency detected & verified', time: new Date().toLocaleTimeString(), completed: true },
-  ],
+  evidenceItems: [],
+  timeline: [],
 };
 
 export interface EmergencyCreationResult {

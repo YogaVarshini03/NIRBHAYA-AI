@@ -59,8 +59,12 @@ export const ResponderDashboard: React.FC = () => {
     showToast(`Officer Arjun Kumar accepted dispatch for Incident ${incId}`, 'success');
   };
 
-  const handleNavigate = (e: React.MouseEvent, lat: number, lng: number) => {
+  const handleNavigate = (e: React.MouseEvent, lat?: number, lng?: number) => {
     e.stopPropagation();
+    if (!lat || !lng) {
+      showToast('Incident GPS coordinates unavailable.', 'warning');
+      return;
+    }
     const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
     window.open(url, '_blank');
     showToast('Opening turn-by-turn navigation in Google Maps...', 'info');
@@ -198,7 +202,7 @@ export const ResponderDashboard: React.FC = () => {
                       <Button
                         variant="secondary"
                         size="sm"
-                        onClick={(e) => handleNavigate(e, inc.latitude || 13.0827, inc.longitude || 80.2707)}
+                        onClick={(e) => handleNavigate(e, inc.latitude, inc.longitude)}
                         className="text-xs py-1"
                       >
                         Navigate

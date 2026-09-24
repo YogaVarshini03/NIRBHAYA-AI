@@ -62,9 +62,9 @@ export const SimulatedMap: React.FC<SimulatedMapProps> = ({
           className={`w-full ${height}`}
           routeGeometry={selectedRoute?.geometry}
           showSafePoints={showSafePoints}
-          destination={selectedRoute ? {
-            lat: (currentGps?.latitude || 13.0827) + 0.02,
-            lng: (currentGps?.longitude || 80.2707) + 0.02,
+          destination={selectedRoute && currentGps ? {
+            lat: currentGps.latitude + 0.02,
+            lng: currentGps.longitude + 0.02,
             name: selectedRoute.name,
           } : null}
         />

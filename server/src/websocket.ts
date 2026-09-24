@@ -50,7 +50,7 @@ export function setupWebSocket(server: Server) {
   return wss;
 }
 
-function handleWsMessage(ws: WebSocket, data: any) {
+async function handleWsMessage(ws: WebSocket, data: any) {
   const client = clients.get(ws);
   if (!client) return;
 
@@ -75,12 +75,12 @@ function handleWsMessage(ws: WebSocket, data: any) {
       const updateId = `loc_${uuidv4()}`;
       const now = new Date().toISOString();
 
-      // Persist location update in database (Rule 5 & 11)
+      // Persist location update in database
       try {
-        db.prepare(`
+        await db.execute(`
           INSERT INTO location_updates (id, incident_id, user_id, latitude, longitude, accuracy, speed, heading, altitude, timestamp)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        `, [
           updateId,
           incidentId || null,
           data.userId || 'anonymous',
@@ -91,21 +91,21 @@ function handleWsMessage(ws: WebSocket, data: any) {
           heading || null,
           altitude || null,
           now
-        );
+        ]);
 
         // If this is an incident, update the incident's latest coordinates
         if (incidentId && senderRole !== 'RESPONDER') {
-          db.prepare(`
+          await db.execute(`
             UPDATE emergency_incidents
             SET latitude = ?, longitude = ?, accuracy = ?, updated_at = ?
             WHERE id = ?
-          `).run(latitude, longitude, accuracy || 5, now, incidentId);
+          `, [latitude, longitude, accuracy || 5, now, incidentId]);
         } else if (incidentId && senderRole === 'RESPONDER') {
-          db.prepare(`
+          await db.execute(`
             UPDATE emergency_incidents
             SET responder_latitude = ?, responder_longitude = ?, updated_at = ?
             WHERE id = ?
-          `).run(latitude, longitude, now, incidentId);
+          `, [latitude, longitude, now, incidentId]);
         }
       } catch (err) {
         console.error('[WebSocket] Failed to save location update to DB:', err);

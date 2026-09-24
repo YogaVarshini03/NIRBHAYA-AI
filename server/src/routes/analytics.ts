@@ -3,33 +3,33 @@ import { db } from '../db';
 
 export const analyticsRouter = Router();
 
-// GET /api/analytics - Dynamic aggregation from SQLite database records (Rule 19)
-analyticsRouter.get('/', (req: Request, res: Response): void => {
+// GET /api/analytics - Dynamic aggregation from database records
+analyticsRouter.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const totalIncidentsRow = db.prepare('SELECT COUNT(*) as count FROM emergency_incidents').get() as { count: number };
+    const totalIncidentsRow = await db.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM emergency_incidents');
     const totalIncidents = totalIncidentsRow ? totalIncidentsRow.count : 0;
 
-    const resolvedIncidentsRow = db.prepare("SELECT COUNT(*) as count FROM emergency_incidents WHERE status = 'RESOLVED'").get() as { count: number };
+    const resolvedIncidentsRow = await db.queryOne<{ count: number }>("SELECT COUNT(*) as count FROM emergency_incidents WHERE status = 'RESOLVED'");
     const resolvedIncidents = resolvedIncidentsRow ? resolvedIncidentsRow.count : 0;
 
-    const activeIncidentsRow = db.prepare("SELECT COUNT(*) as count FROM emergency_incidents WHERE status NOT IN ('RESOLVED', 'CLOSED')").get() as { count: number };
+    const activeIncidentsRow = await db.queryOne<{ count: number }>("SELECT COUNT(*) as count FROM emergency_incidents WHERE status NOT IN ('RESOLVED', 'CLOSED')");
     const activeIncidents = activeIncidentsRow ? activeIncidentsRow.count : 0;
 
-    const totalLocationChecksRow = db.prepare('SELECT COUNT(*) as count FROM location_updates').get() as { count: number };
+    const totalLocationChecksRow = await db.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM location_updates');
     const totalSafetyChecks = totalLocationChecksRow ? totalLocationChecksRow.count : 0;
 
-    const totalEvidenceRow = db.prepare('SELECT COUNT(*) as count FROM evidence_records').get() as { count: number };
+    const totalEvidenceRow = await db.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM evidence_records');
     const totalEvidenceCount = totalEvidenceRow ? totalEvidenceRow.count : 0;
 
-    const totalNotificationsRow = db.prepare("SELECT COUNT(*) as count FROM notifications WHERE status = 'SENT'").get() as { count: number };
+    const totalNotificationsRow = await db.queryOne<{ count: number }>("SELECT COUNT(*) as count FROM notifications WHERE status = 'SENT'");
     const totalNotificationsSent = totalNotificationsRow ? totalNotificationsRow.count : 0;
 
     // Risk level distribution
-    const riskDistributionRows = db.prepare(`
+    const riskDistributionRows = await db.query<{ risk_level: string; count: number }>(`
       SELECT risk_level, COUNT(*) as count
       FROM emergency_incidents
       GROUP BY risk_level
-    `).all() as Array<{ risk_level: string; count: number }>;
+    `);
 
     const riskDistribution: Record<string, number> = {
       CRITICAL: 0,
@@ -42,30 +42,41 @@ analyticsRouter.get('/', (req: Request, res: Response): void => {
     });
 
     // Recent incidents
-    const recentIncidents = db.prepare(`
+    const recentIncidents = await db.query(`
       SELECT id, status, risk_level, risk_score, location_name, created_at, resolved_at
       FROM emergency_incidents
       ORDER BY created_at DESC
       LIMIT 10
-    `).all();
+    `);
 
     // Average response time calculation: time between CREATED and RESPONDER_ACCEPTED
     let avgResponseTimeSeconds = null;
     let avgResponseTimeDisplay = 'N/A';
 
     try {
-      const responseTimes = db.prepare(`
+      const responseTimeRows = await db.query<{ t_create: string; t_accept: string }>(`
         SELECT 
-          (strftime('%s', e_acc.timestamp) - strftime('%s', e_create.timestamp)) as response_sec
+          e_create.timestamp as t_create,
+          e_acc.timestamp as t_accept
         FROM incident_events e_create
         JOIN incident_events e_acc ON e_create.incident_id = e_acc.incident_id
         WHERE e_create.event = 'INCIDENT_CREATED' AND e_acc.event = 'RESPONDER_ACCEPTED'
-      `).all() as Array<{ response_sec: number }>;
+      `);
 
-      if (responseTimes.length > 0) {
-        const sum = responseTimes.reduce((acc, curr) => acc + Math.max(0, curr.response_sec), 0);
-        avgResponseTimeSeconds = Math.round(sum / responseTimes.length);
-        avgResponseTimeDisplay = `${Math.floor(avgResponseTimeSeconds / 60)}m ${avgResponseTimeSeconds % 60}s`;
+      if (responseTimeRows.length > 0) {
+        const diffs = responseTimeRows
+          .map((r) => {
+            const c = new Date(r.t_create).getTime();
+            const a = new Date(r.t_accept).getTime();
+            return (a - c) / 1000;
+          })
+          .filter((d) => !isNaN(d) && d >= 0);
+
+        if (diffs.length > 0) {
+          const sum = diffs.reduce((acc, curr) => acc + curr, 0);
+          avgResponseTimeSeconds = Math.round(sum / diffs.length);
+          avgResponseTimeDisplay = `${Math.floor(avgResponseTimeSeconds / 60)}m ${avgResponseTimeSeconds % 60}s`;
+        }
       }
     } catch (err) {
       console.warn('[Analytics] Response time calc note:', err);

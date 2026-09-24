@@ -8,15 +8,15 @@ import { v4 as uuidv4 } from 'uuid';
 export const contactsRouter = Router();
 
 // GET /api/contacts
-contactsRouter.get('/', authenticateToken, (req: Request, res: Response) => {
+contactsRouter.get('/', authenticateToken, async (req: Request, res: Response) => {
   const user = (req as any).user;
   try {
-    const contacts = db.prepare(`
+    const contacts = await db.query(`
       SELECT id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at
       FROM trusted_contacts
       WHERE user_id = ?
       ORDER BY is_primary DESC, created_at DESC
-    `).all(user.id);
+    `, [user.id]);
 
     return res.json({ success: true, contacts });
   } catch (err: any) {
@@ -26,7 +26,7 @@ contactsRouter.get('/', authenticateToken, (req: Request, res: Response) => {
 });
 
 // POST /api/contacts
-contactsRouter.post('/', authenticateToken, (req: Request, res: Response) => {
+contactsRouter.post('/', authenticateToken, async (req: Request, res: Response) => {
   const user = (req as any).user;
   const { name, phone, email, relationship, notificationPreference } = req.body;
 
@@ -41,7 +41,7 @@ contactsRouter.post('/', authenticateToken, (req: Request, res: Response) => {
 
   try {
     // Check duplicate
-    const existing = db.prepare('SELECT id FROM trusted_contacts WHERE user_id = ? AND phone LIKE ?').get(user.id, `%${cleanPhone.slice(-10)}`);
+    const existing = await db.queryOne('SELECT id FROM trusted_contacts WHERE user_id = ? AND phone LIKE ?', [user.id, `%${cleanPhone.slice(-10)}`]);
     if (existing) {
       return res.status(409).json({ success: false, error: 'A contact with this phone number already exists.' });
     }
@@ -49,10 +49,10 @@ contactsRouter.post('/', authenticateToken, (req: Request, res: Response) => {
     const contactId = `cnt_${uuidv4()}`;
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       contactId,
       user.id,
       name.trim(),
@@ -63,9 +63,9 @@ contactsRouter.post('/', authenticateToken, (req: Request, res: Response) => {
       notificationPreference || 'SMS & App',
       now,
       now
-    );
+    ]);
 
-    const newContact = db.prepare('SELECT * FROM trusted_contacts WHERE id = ?').get(contactId);
+    const newContact = await db.queryOne('SELECT * FROM trusted_contacts WHERE id = ?', [contactId]);
     return res.status(201).json({ success: true, contact: newContact });
   } catch (err: any) {
     console.error('[Contacts API] Error creating contact:', err);
@@ -74,17 +74,17 @@ contactsRouter.post('/', authenticateToken, (req: Request, res: Response) => {
 });
 
 // PUT /api/contacts/:id
-contactsRouter.put('/:id', authenticateToken, (req: Request, res: Response) => {
+contactsRouter.put('/:id', authenticateToken, async (req: Request, res: Response) => {
   const { id } = req.params;
   const { name, phone, email, relationship, notificationPreference, isPrimary } = req.body;
 
   try {
-    const existing = db.prepare('SELECT id FROM trusted_contacts WHERE id = ?').get(id);
+    const existing = await db.queryOne('SELECT id FROM trusted_contacts WHERE id = ?', [id]);
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Contact not found.' });
     }
 
-    db.prepare(`
+    await db.execute(`
       UPDATE trusted_contacts
       SET name = COALESCE(?, name),
           phone = COALESCE(?, phone),
@@ -94,7 +94,7 @@ contactsRouter.put('/:id', authenticateToken, (req: Request, res: Response) => {
           is_primary = COALESCE(?, is_primary),
           updated_at = ?
       WHERE id = ?
-    `).run(
+    `, [
       name || null,
       phone || null,
       email || null,
@@ -103,9 +103,9 @@ contactsRouter.put('/:id', authenticateToken, (req: Request, res: Response) => {
       isPrimary !== undefined ? (isPrimary ? 1 : 0) : null,
       new Date().toISOString(),
       id
-    );
+    ]);
 
-    const updated = db.prepare('SELECT * FROM trusted_contacts WHERE id = ?').get(id);
+    const updated = await db.queryOne('SELECT * FROM trusted_contacts WHERE id = ?', [id]);
     return res.json({ success: true, contact: updated });
   } catch (err: any) {
     console.error('[Contacts API] Error updating contact:', err);
@@ -114,10 +114,10 @@ contactsRouter.put('/:id', authenticateToken, (req: Request, res: Response) => {
 });
 
 // DELETE /api/contacts/:id
-contactsRouter.delete('/:id', authenticateToken, (req: Request, res: Response) => {
+contactsRouter.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    const result = db.prepare('DELETE FROM trusted_contacts WHERE id = ?').run(id);
+    const result = await db.execute('DELETE FROM trusted_contacts WHERE id = ?', [id]);
     if (result.changes === 0) {
       return res.status(404).json({ success: false, error: 'Contact not found.' });
     }
@@ -132,7 +132,7 @@ contactsRouter.delete('/:id', authenticateToken, (req: Request, res: Response) =
 contactsRouter.post('/:id/test-alert', authenticateToken, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    const contact = db.prepare('SELECT * FROM trusted_contacts WHERE id = ?').get(id) as any;
+    const contact = await db.queryOne<any>('SELECT * FROM trusted_contacts WHERE id = ?', [id]);
     if (!contact) {
       return res.status(404).json({ success: false, error: 'Contact not found.' });
     }

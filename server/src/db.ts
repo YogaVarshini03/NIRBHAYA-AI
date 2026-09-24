@@ -1,3 +1,4 @@
+import mysql from 'mysql2/promise';
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
@@ -12,18 +13,295 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-const DB_PATH = process.env.DATABASE_URL || path.join(DATA_DIR, 'nirbhaya.db');
-export const db = new Database(DB_PATH);
+let mysqlPool: mysql.Pool | null = null;
+let sqliteDb: Database.Database | null = null;
+let activeEngine: 'MYSQL' | 'SQLITE' = 'SQLITE';
 
-// Enable WAL mode for high performance concurrent reads/writes
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+function normalizeParams(params: any[]): any[] {
+  if (params.length === 1 && Array.isArray(params[0])) {
+    return params[0];
+  }
+  return params;
+}
 
-export function initDatabase() {
+export const db = {
+  isMySQL(): boolean {
+    return activeEngine === 'MYSQL';
+  },
+
+  getEngine(): string {
+    return activeEngine;
+  },
+
+  async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    const flat = normalizeParams(params);
+    if (mysqlPool) {
+      const [rows] = await mysqlPool.query(sql, flat);
+      return rows as T[];
+    }
+    if (sqliteDb) {
+      return sqliteDb.prepare(sql).all(...flat) as T[];
+    }
+    throw new Error('Database not initialized');
+  },
+
+  async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | null> {
+    const rows = await this.query<T>(sql, params);
+    return rows && rows.length > 0 ? rows[0] : null;
+  },
+
+  async execute(sql: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: any }> {
+    const flat = normalizeParams(params);
+    if (mysqlPool) {
+      const [result] = await mysqlPool.execute(sql, flat);
+      const res = result as mysql.ResultSetHeader;
+      return { changes: res.affectedRows, lastInsertRowid: res.insertId };
+    }
+    if (sqliteDb) {
+      const info = sqliteDb.prepare(sql).run(...flat);
+      return { changes: info.changes, lastInsertRowid: info.lastInsertRowid };
+    }
+    throw new Error('Database not initialized');
+  },
+
+  prepare(sql: string) {
+    if (mysqlPool) {
+      return {
+        run: async (...params: any[]) => {
+          return db.execute(sql, normalizeParams(params));
+        },
+        get: async (...params: any[]) => {
+          return db.queryOne(sql, normalizeParams(params));
+        },
+        all: async (...params: any[]) => {
+          return db.query(sql, normalizeParams(params));
+        },
+      };
+    }
+
+    if (sqliteDb) {
+      const stmt = sqliteDb.prepare(sql);
+      return {
+        run: (...params: any[]) => {
+          const flat = normalizeParams(params);
+          return stmt.run(...flat);
+        },
+        get: (...params: any[]) => {
+          const flat = normalizeParams(params);
+          return stmt.get(...flat);
+        },
+        all: (...params: any[]) => {
+          const flat = normalizeParams(params);
+          return stmt.all(...flat);
+        },
+      };
+    }
+
+    throw new Error('Database not initialized');
+  }
+};
+
+export async function initDatabase(): Promise<void> {
+  const isMySQLConfigured = Boolean(
+    process.env.MYSQLHOST ||
+    process.env.MYSQL_URL ||
+    (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('mysql'))
+  );
+
+  if (isMySQLConfigured) {
+    try {
+      console.log('[Database] Railway MySQL configuration detected. Connecting to MySQL...');
+
+      if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('mysql')) {
+        mysqlPool = mysql.createPool({
+          uri: process.env.DATABASE_URL,
+          waitForConnections: true,
+          connectionLimit: 10,
+          queueLimit: 0,
+        });
+      } else if (process.env.MYSQL_URL) {
+        mysqlPool = mysql.createPool({
+          uri: process.env.MYSQL_URL,
+          waitForConnections: true,
+          connectionLimit: 10,
+          queueLimit: 0,
+        });
+      } else {
+        mysqlPool = mysql.createPool({
+          host: process.env.MYSQLHOST || 'localhost',
+          port: Number(process.env.MYSQLPORT) || 3306,
+          user: process.env.MYSQLUSER || 'root',
+          password: process.env.MYSQLPASSWORD || '',
+          database: process.env.MYSQLDATABASE || 'railway',
+          waitForConnections: true,
+          connectionLimit: 10,
+          queueLimit: 0,
+        });
+      }
+
+      // Test connection
+      const connection = await mysqlPool.getConnection();
+      console.log(`[Database] Successfully connected to Railway MySQL on ${process.env.MYSQLHOST || 'internal network'}!`);
+      connection.release();
+
+      activeEngine = 'MYSQL';
+      await initMySQLTables();
+      await seedDefaultData();
+      return;
+    } catch (mysqlErr: any) {
+      console.warn(`[Database] MySQL connection failed (${mysqlErr.message}). Falling back to local SQLite.`);
+      mysqlPool = null;
+    }
+  }
+
+  // SQLite fallback
+  const DB_PATH = (process.env.DATABASE_URL && !process.env.DATABASE_URL.startsWith('mysql'))
+    ? process.env.DATABASE_URL
+    : path.join(DATA_DIR, 'nirbhaya.db');
+
   console.log(`[Database] Initializing SQLite database at ${DB_PATH}`);
+  sqliteDb = new Database(DB_PATH);
+  sqliteDb.pragma('journal_mode = WAL');
+  sqliteDb.pragma('foreign_keys = ON');
+  activeEngine = 'SQLITE';
 
-  // Create tables
-  db.exec(`
+  initSQLiteTables();
+  await seedDefaultData();
+}
+
+async function initMySQLTables() {
+  if (!mysqlPool) return;
+
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS users (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      phone VARCHAR(64) NOT NULL,
+      role VARCHAR(32) DEFAULT 'USER',
+      created_at VARCHAR(64) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS trusted_contacts (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      phone VARCHAR(64) NOT NULL,
+      email VARCHAR(255) NOT NULL,
+      relationship VARCHAR(64) NOT NULL,
+      is_primary INT DEFAULT 0,
+      notification_preference VARCHAR(64) DEFAULT 'All Channels',
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS emergency_incidents (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      status VARCHAR(32) NOT NULL,
+      risk_level VARCHAR(32) NOT NULL,
+      risk_score INT NOT NULL,
+      latitude DOUBLE NOT NULL,
+      longitude DOUBLE NOT NULL,
+      accuracy DOUBLE NOT NULL,
+      location_name VARCHAR(255) NOT NULL,
+      responder_id VARCHAR(64),
+      responder_name VARCHAR(255),
+      responder_badge VARCHAR(64),
+      responder_latitude DOUBLE,
+      responder_longitude DOUBLE,
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      resolved_at VARCHAR(64),
+      INDEX idx_status (status),
+      INDEX idx_inc_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS incident_events (
+      id VARCHAR(64) PRIMARY KEY,
+      incident_id VARCHAR(64) NOT NULL,
+      event VARCHAR(255) NOT NULL,
+      actor VARCHAR(255) NOT NULL,
+      timestamp VARCHAR(64) NOT NULL,
+      metadata TEXT,
+      INDEX idx_event_inc (incident_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS location_updates (
+      id VARCHAR(64) PRIMARY KEY,
+      incident_id VARCHAR(64),
+      user_id VARCHAR(64) NOT NULL,
+      latitude DOUBLE NOT NULL,
+      longitude DOUBLE NOT NULL,
+      accuracy DOUBLE NOT NULL,
+      speed DOUBLE,
+      heading DOUBLE,
+      altitude DOUBLE,
+      timestamp VARCHAR(64) NOT NULL,
+      INDEX idx_loc_inc (incident_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS tracking_sessions (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      incident_id VARCHAR(64) NOT NULL,
+      token VARCHAR(255) UNIQUE NOT NULL,
+      status VARCHAR(32) DEFAULT 'ACTIVE',
+      started_at VARCHAR(64) NOT NULL,
+      expires_at VARCHAR(64) NOT NULL,
+      INDEX idx_token (token)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS evidence_records (
+      id VARCHAR(64) PRIMARY KEY,
+      incident_id VARCHAR(64) NOT NULL,
+      user_id VARCHAR(64) NOT NULL,
+      type VARCHAR(32) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      file_path VARCHAR(512) NOT NULL,
+      file_size BIGINT NOT NULL,
+      mime_type VARCHAR(64) NOT NULL,
+      sha256_hash VARCHAR(128) NOT NULL,
+      duration_sec INT,
+      is_locked INT DEFAULT 1,
+      created_at VARCHAR(64) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS notifications (
+      id VARCHAR(64) PRIMARY KEY,
+      incident_id VARCHAR(64) NOT NULL,
+      recipient VARCHAR(255) NOT NULL,
+      type VARCHAR(32) NOT NULL,
+      status VARCHAR(32) NOT NULL,
+      provider VARCHAR(64) NOT NULL,
+      provider_message_id VARCHAR(255),
+      error_message TEXT,
+      created_at VARCHAR(64) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS audit_logs (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64),
+      action VARCHAR(255) NOT NULL,
+      ip_address VARCHAR(64),
+      timestamp VARCHAR(64) NOT NULL,
+      details TEXT
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
+  ];
+
+  for (const tableSql of tables) {
+    await mysqlPool.query(tableSql);
+  }
+  console.log('[Database] All MySQL tables verified & initialized.');
+}
+
+function initSQLiteTables() {
+  if (!sqliteDb) return;
+
+  sqliteDb.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -139,89 +417,76 @@ export function initDatabase() {
       details TEXT
     );
   `);
+  console.log('[Database] All SQLite tables verified & initialized.');
+}
 
-  // Seed default demo user and responder if not exists
-  const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@nirbhaya.ai');
+async function seedDefaultData() {
   const salt = bcrypt.genSaltSync(10);
+  const now = new Date().toISOString();
 
+  // 1. Seed demo user
+  const existingUser = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
   if (!existingUser) {
     const passwordHash = bcrypt.hashSync('demo1234', salt);
-    db.prepare(`
-      INSERT INTO users (id, name, email, password_hash, phone, role, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'usr_ananya_01',
-      'Ananya Sharma',
-      'demo@nirbhaya.ai',
-      passwordHash,
-      '+91 98765 43210',
-      'USER',
-      new Date().toISOString()
+    await db.execute(
+      'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['usr_ananya_01', 'Ananya Sharma', 'demo@nirbhaya.ai', passwordHash, '+91 98765 43210', 'USER', now]
     );
-
     console.log('[Database] Seeded default user: Ananya Sharma (demo@nirbhaya.ai)');
   }
 
-  // Seed responder user
-  const existingResponder = db.prepare('SELECT id FROM users WHERE email = ?').get('arjun@police.gov.in');
+  // 2. Seed responder user
+  const existingResponder = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['arjun@police.gov.in']);
   if (!existingResponder) {
     const respHash = bcrypt.hashSync('responder1234', salt);
-    db.prepare(`
-      INSERT INTO users (id, name, email, password_hash, phone, role, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'rsp_arjun_kumar_1042',
-      'Officer Arjun Kumar',
-      'arjun@police.gov.in',
-      respHash,
-      '+91 112 000 1042',
-      'RESPONDER',
-      new Date().toISOString()
+    await db.execute(
+      'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['rsp_arjun_kumar_1042', 'Officer Arjun Kumar', 'arjun@police.gov.in', respHash, '+91 112 000 1042', 'RESPONDER', now]
     );
     console.log('[Database] Seeded default responder: Officer Arjun Kumar');
   }
 
-  // Seed specifically requested test contacts (9345596322 and saranyarajendran2612@gmail.com)
-  const user = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@nirbhaya.ai') as { id: string };
-  const contactCheck = db.prepare('SELECT id FROM trusted_contacts WHERE phone = ?').get('9345596322');
+  // 3. Seed requested trusted test contacts
+  const user = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
+  const contactCheck = await db.queryOne<{ id: string }>('SELECT id FROM trusted_contacts WHERE phone = ?', ['9345596322']);
 
   if (!contactCheck && user) {
-    // 1. Primary requested test contact (Rule 8 & 9)
-    db.prepare(`
-      INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'cnt_test_primary_01',
-      user.id,
-      'Saranya R (Primary Test Guardian)',
-      '9345596322',
-      'saranyarajendran2612@gmail.com',
-      'Guardian',
-      1,
-      'All Channels',
-      new Date().toISOString(),
-      new Date().toISOString()
+    // Primary requested test contact (Rule 8 & 9)
+    await db.execute(
+      `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'cnt_test_primary_01',
+        user.id,
+        'Saranya R (Primary Test Guardian)',
+        '9345596322',
+        'saranyarajendran2612@gmail.com',
+        'Guardian',
+        1,
+        'All Channels',
+        now,
+        now
+      ]
     );
 
-    // 2. Family contact
-    db.prepare(`
-      INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'cnt_sunita_sharma',
-      user.id,
-      'Sunita Sharma',
-      '+91 98765 11223',
-      'sunita.sharma@family.com',
-      'Mother',
-      0,
-      'SMS & App',
-      new Date().toISOString(),
-      new Date().toISOString()
+    // Family contact
+    await db.execute(
+      `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'cnt_sunita_sharma',
+        user.id,
+        'Sunita Sharma',
+        '+91 98765 11223',
+        'sunita.sharma@family.com',
+        'Mother',
+        0,
+        'SMS & App',
+        now,
+        now
+      ]
     );
 
     console.log('[Database] Seeded requested test contacts (9345596322 / saranyarajendran2612@gmail.com)');
   }
-
-  console.log('[Database] Initialization complete. All tables verified.');
 }

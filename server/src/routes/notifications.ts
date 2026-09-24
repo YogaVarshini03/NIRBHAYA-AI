@@ -76,15 +76,19 @@ notificationsRouter.post('/test', async (req: Request, res: Response): Promise<v
     const results: { sms?: any; email?: any } = {};
     const testIncidentCode = `TEST-${Math.floor(1000 + Math.random() * 9000)}`;
 
+    const testLat = typeof req.body.latitude === 'number' ? req.body.latitude : 0;
+    const testLng = typeof req.body.longitude === 'number' ? req.body.longitude : 0;
+    const testLocName = req.body.locationName || 'Controlled Notification Verification Drill';
+
     // Dispatch ONE test SMS if requested
     if ((target === 'SMS' || target === 'BOTH') && testPhone) {
       results.sms = await sendEmergencySms({
         incidentId: 'manual_provider_test',
         toPhone: testPhone,
         incidentCode: testIncidentCode,
-        locationName: 'Designated Test GPS Benchmark',
-        latitude: 13.0827,
-        longitude: 80.2707,
+        locationName: testLocName,
+        latitude: testLat,
+        longitude: testLng,
         trackingUrl: 'https://nirbhaya.ai/tracking/test_drill',
       });
     }
@@ -95,9 +99,9 @@ notificationsRouter.post('/test', async (req: Request, res: Response): Promise<v
         incidentId: 'manual_provider_test',
         toEmail: testEmail,
         incidentCode: testIncidentCode,
-        locationName: 'Designated Test GPS Benchmark',
-        latitude: 13.0827,
-        longitude: 80.2707,
+        locationName: testLocName,
+        latitude: testLat,
+        longitude: testLng,
         accuracy: 8,
         emergencyStatus: 'TEST DRILL ALERT',
         trackingUrl: 'https://nirbhaya.ai/tracking/test_drill',

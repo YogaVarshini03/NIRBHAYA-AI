@@ -85,11 +85,11 @@ evidenceRouter.post('/upload', upload.single('file'), async (req: Request, res: 
     const id = `evi_${uuidv4()}`;
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await db.execute(`
       INSERT INTO evidence_records (
         id, incident_id, user_id, type, title, file_name, file_path, file_size, mime_type, sha256_hash, duration_sec, is_locked, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-    `).run(
+    `, [
       id,
       incidentId,
       userId,
@@ -102,7 +102,7 @@ evidenceRouter.post('/upload', upload.single('file'), async (req: Request, res: 
       sha256Hash,
       durationSec ? parseInt(durationSec, 10) : null,
       now
-    );
+    ]);
 
     res.status(201).json({
       success: true,
@@ -128,7 +128,7 @@ evidenceRouter.post('/upload', upload.single('file'), async (req: Request, res: 
 });
 
 // GET /api/evidence - List all evidence records
-evidenceRouter.get('/', (req: Request, res: Response): void => {
+evidenceRouter.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { incidentId, userId } = req.query;
     let query = 'SELECT * FROM evidence_records';
@@ -147,7 +147,7 @@ evidenceRouter.get('/', (req: Request, res: Response): void => {
 
     query += ' ORDER BY created_at DESC';
 
-    const records = db.prepare(query).all(...params);
+    const records = await db.query(query, params);
     const enriched = records.map((r: any) => ({
       ...r,
       downloadUrl: `/uploads/${r.file_name}`,
@@ -160,17 +160,17 @@ evidenceRouter.get('/', (req: Request, res: Response): void => {
 });
 
 // POST /api/evidence/:id/lock - Toggle lock status
-evidenceRouter.post('/:id/lock', (req: Request, res: Response): void => {
+evidenceRouter.post('/:id/lock', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const item = db.prepare('SELECT is_locked FROM evidence_records WHERE id = ?').get(id) as any;
+    const item = await db.queryOne<any>('SELECT is_locked FROM evidence_records WHERE id = ?', [id]);
     if (!item) {
       res.status(404).json({ success: false, message: 'Evidence record not found' });
       return;
     }
 
     const newLock = item.is_locked ? 0 : 1;
-    db.prepare('UPDATE evidence_records SET is_locked = ? WHERE id = ?').run(newLock, id);
+    await db.execute('UPDATE evidence_records SET is_locked = ? WHERE id = ?', [newLock, id]);
 
     res.json({ success: true, isLocked: Boolean(newLock) });
   } catch (error: any) {
@@ -179,10 +179,10 @@ evidenceRouter.post('/:id/lock', (req: Request, res: Response): void => {
 });
 
 // DELETE /api/evidence/:id - Delete evidence (if unlocked)
-evidenceRouter.delete('/:id', (req: Request, res: Response): void => {
+evidenceRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const item = db.prepare('SELECT * FROM evidence_records WHERE id = ?').get(id) as any;
+    const item = await db.queryOne<any>('SELECT * FROM evidence_records WHERE id = ?', [id]);
 
     if (!item) {
       res.status(404).json({ success: false, message: 'Evidence record not found' });
@@ -203,7 +203,7 @@ evidenceRouter.delete('/:id', (req: Request, res: Response): void => {
       }
     }
 
-    db.prepare('DELETE FROM evidence_records WHERE id = ?').run(id);
+    await db.execute('DELETE FROM evidence_records WHERE id = ?', [id]);
     res.json({ success: true, message: 'Evidence successfully deleted' });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
