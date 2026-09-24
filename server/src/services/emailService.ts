@@ -140,13 +140,25 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
   // PRIORITY 1: SMTP Relay (Gmail, Outlook, Custom SMTP)
   if (host && user && pass) {
     try {
-      console.log(`[Email Service] Dispatching email via SMTP (${host}:${port}) to ${params.toEmail}...`);
-      const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure: port === 465,
-        auth: { user, pass },
-      });
+      const isGmail = host.includes('gmail.com');
+      console.log(`[Email Service] Dispatching email via ${isGmail ? 'Gmail Service' : 'SMTP'} (${host}) to ${params.toEmail}...`);
+      const transporter = isGmail
+        ? nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user, pass },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 15000,
+          })
+        : nodemailer.createTransport({
+            host,
+            port,
+            secure: port === 465,
+            auth: { user, pass },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 15000,
+          });
 
       const smtpSender = host.includes('gmail.com') && user ? user : configuredFrom;
 
