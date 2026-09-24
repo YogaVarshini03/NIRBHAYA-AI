@@ -20,6 +20,7 @@ export interface SendEmailParams {
 
 export interface EmailResult {
   success: boolean;
+  status: 'SENT' | 'FAILED';
   providerMessageId?: string;
   error?: string;
   provider: string;
@@ -137,8 +138,105 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
     `;
   }
 
-  // PRIORITY 1: SMTP Relay (Gmail, Outlook, Custom SMTP)
-  if (host && user && pass) {
+  // PRIORITY 1: Resend HTTPS API over port 443 (Cloud Production Standard)
+  if (resendApiKey) {
+    try {
+      console.log(`[Email Service] Dispatching emergency email via Resend HTTPS API to ${params.toEmail}...`);
+      
+      let fromAddress = process.env.EMAIL_FROM || process.env.EMAIL_FROM_ADDRESS || 'NIRBHAYA AI <onboarding@resend.dev>';
+      
+      const payload = {
+        from: fromAddress,
+        to: [params.toEmail],
+        subject,
+        html: htmlBody,
+        text: textBody,
+      };
+
+      let res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000), // 10s timeout
+      });
+
+      let resData = await res.json().catch(() => ({})) as any;
+
+      // Handle unverified custom domain fallback to Resend testing sender
+      if (!res.ok && resData.message && (resData.message.includes('domain') || resData.message.includes('verify') || resData.message.includes('from')) && fromAddress !== 'NIRBHAYA AI <onboarding@resend.dev>') {
+        console.warn(`[Email Service] Sender address (${fromAddress}) unverified on Resend. Retrying with onboarding@resend.dev...`);
+        fromAddress = 'NIRBHAYA AI <onboarding@resend.dev>';
+        res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...payload,
+            from: fromAddress,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        resData = await res.json().catch(() => ({})) as any;
+      }
+
+      if (!res.ok) {
+        const errorMsg = resData.message || `Resend HTTP error ${res.status}: ${JSON.stringify(resData)}`;
+        console.error('[Email Service] Resend API request rejected:', errorMsg);
+
+        await db.execute(`
+          INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Resend', null, errorMsg, timestampStr]);
+
+        return {
+          success: false,
+          status: 'FAILED',
+          error: errorMsg,
+          provider: 'Resend',
+        };
+      }
+
+      console.log(`[Email Service] Resend email accepted! ID: ${resData.id}`);
+
+      await db.execute(`
+        INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'SENT', 'Resend', resData.id, null, timestampStr]);
+
+      return {
+        success: true,
+        status: 'SENT',
+        providerMessageId: resData.id,
+        provider: 'Resend',
+      };
+    } catch (err: any) {
+      const errMsg = err?.name === 'TimeoutError'
+        ? 'Resend API connection timed out after 10s'
+        : (err?.message || 'Failed connecting to Resend HTTPS API');
+      console.error('[Email Service] Resend API exception:', errMsg);
+
+      await db.execute(`
+        INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Resend', null, errMsg, timestampStr]);
+
+      return {
+        success: false,
+        status: 'FAILED',
+        error: errMsg,
+        provider: 'Resend',
+      };
+    }
+  }
+
+  // PRIORITY 2: SMTP Relay (only if Resend is not configured AND not running in cloud container blocking raw SMTP)
+  const isCloudRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL);
+  if (host && user && pass && !isCloudRailway) {
     try {
       const isGmail = host.includes('gmail.com');
       console.log(`[Email Service] Dispatching email via ${isGmail ? 'Gmail Service' : 'SMTP'} (${host}) to ${params.toEmail}...`);
@@ -179,6 +277,7 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
 
       return {
         success: true,
+        status: 'SENT',
         providerMessageId: info.messageId,
         provider: 'Gmail SMTP',
         response: info.response,
@@ -192,88 +291,14 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Gmail SMTP', null, errMsg, timestampStr]);
 
-      return { success: false, error: errMsg, provider: 'Gmail SMTP' };
+      return { success: false, status: 'FAILED', error: errMsg, provider: 'Gmail SMTP' };
     }
   }
 
-  // PRIORITY 2: Resend HTTP API (if SMTP is unconfigured)
-  if (resendApiKey) {
-    try {
-      console.log(`[Email Service] Dispatching email via Resend to ${params.toEmail}...`);
-      
-      let fromAddress = configuredFrom;
-      let res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: fromAddress,
-          to: [params.toEmail],
-          subject,
-          html: htmlBody,
-          text: textBody,
-        }),
-      });
-
-      let resData = await res.json() as any;
-
-      if (!res.ok && resData.message && (resData.message.includes('domain') || resData.message.includes('verify')) && fromAddress !== 'NIRBHAYA AI <onboarding@resend.dev>') {
-        console.warn(`[Email Service] Configured sender (${fromAddress}) not verified on Resend. Falling back to onboarding@resend.dev...`);
-        fromAddress = 'NIRBHAYA AI <onboarding@resend.dev>';
-        res = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: fromAddress,
-            to: [params.toEmail],
-            subject,
-            html: htmlBody,
-            text: textBody,
-          }),
-        });
-        resData = await res.json() as any;
-      }
-
-      if (!res.ok) {
-        const errorMsg = resData.message || `Resend HTTP error ${res.status}`;
-        console.error('[Email Service] Resend dispatch rejected:', errorMsg);
-
-        await db.execute(`
-          INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Resend', null, errorMsg, timestampStr]);
-
-        return { success: false, error: errorMsg, provider: 'Resend' };
-      }
-
-      console.log(`[Email Service] Resend email accepted! ID: ${resData.id}`);
-
-      await db.execute(`
-        INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'SENT', 'Resend', resData.id, null, timestampStr]);
-
-      return { success: true, providerMessageId: resData.id, provider: 'Resend' };
-    } catch (err: any) {
-      const errMsg = err?.message || 'Failed connecting to Resend API';
-      console.error('[Email Service] Resend exception:', errMsg);
-
-      await db.execute(`
-        INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [notificationId, params.incidentId, params.toEmail, 'EMAIL', 'FAILED', 'Resend', null, errMsg, timestampStr]);
-
-      return { success: false, error: errMsg, provider: 'Resend' };
-    }
-  }
-
-  // If no email provider is configured, fail honestly
-  const unconfiguredMsg = 'Email credentials not configured in environment (SMTP_HOST, SMTP_USER, SMTP_PASS, or EMAIL_API_KEY).';
+  // If no working email provider is available
+  const unconfiguredMsg = isCloudRailway
+    ? 'Raw SMTP sockets are restricted on Railway cloud containers. RESEND_API_KEY is required for HTTPS transactional email.'
+    : 'Email credentials not configured in environment (RESEND_API_KEY, EMAIL_API_KEY, or SMTP_HOST).';
   console.warn(`[Email Service] Warning: ${unconfiguredMsg}`);
 
   await db.execute(`
@@ -283,7 +308,9 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
 
   return {
     success: false,
+    status: 'FAILED',
     error: unconfiguredMsg,
     provider: 'Email Gateway (Unconfigured)',
   };
+}
 }

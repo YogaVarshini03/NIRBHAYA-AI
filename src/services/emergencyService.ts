@@ -35,7 +35,7 @@ export const DEFAULT_INCIDENT: EmergencyIncident = {
 export interface EmergencyCreationResult {
   incident: EmergencyIncident;
   trackingToken: string;
-  notificationResults: Array<{ type: string; recipient: string; status: string; error?: string }>;
+  notificationResults: Array<{ type: string; recipient: string; status: string; error?: string; reason?: string }>;
   googleMapsUrl?: string;
   isRealGps: boolean;
 }

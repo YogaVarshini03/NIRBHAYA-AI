@@ -97,7 +97,14 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
     const userName = user ? user.name : 'NIRBHAYA AI User';
 
     // 5. Notify Contacts via Real SMS and Real Email
-    const notificationResults: Array<{ type: string; recipient: string; status: string; error?: string }> = [];
+    const notificationResults: Array<{
+      type: string;
+      recipient: string;
+      status: string;
+      error?: string;
+      reason?: string;
+      providerMessageId?: string;
+    }> = [];
 
     for (const contact of contacts) {
       // Send real SMS if phone is present (Target: 9345596322)
@@ -115,8 +122,10 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
         notificationResults.push({
           type: 'SMS',
           recipient: contact.phone,
-          status: smsResult.success ? 'SENT' : 'FAILED',
+          status: smsResult.status,
           error: smsResult.error,
+          reason: smsResult.reason,
+          providerMessageId: smsResult.providerMessageId,
         });
       }
 
@@ -137,8 +146,9 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
         notificationResults.push({
           type: 'EMAIL',
           recipient: contact.email,
-          status: emailResult.success ? 'SENT' : 'FAILED',
+          status: emailResult.status,
           error: emailResult.error,
+          providerMessageId: emailResult.providerMessageId,
         });
       }
     }

@@ -18,7 +18,7 @@ interface EmergencyContextType {
   isEmergencyModalOpen: boolean;
   activeStep: number;
   workflowSteps: WorkflowStepState[];
-  notificationResults: Array<{ type: string; recipient: string; status: string; error?: string }>;
+  notificationResults: Array<{ type: string; recipient: string; status: string; error?: string; reason?: string }>;
   trackingToken: string | null;
   workflowError: string | null;
   triggerSos: (triggerSource?: string) => Promise<void>;
@@ -159,6 +159,8 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       if (smsResult) {
         if (smsResult.status === 'SENT') {
           smsText = `SMS: SENT to ${smsResult.recipient}`;
+        } else if (smsResult.status === 'BLOCKED') {
+          smsText = `SMS: BLOCKED (${smsResult.reason || 'Twilio Trial restriction'})`;
         } else {
           smsText = `SMS: FAILED (${smsResult.error || 'Provider rejected request'})`;
         }
@@ -167,34 +169,38 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       let emailText = 'Email: NOT ATTEMPTED';
       if (emailResult) {
         if (emailResult.status === 'SENT') {
-          emailText = `Email: SENT to ${emailResult.recipient}`;
+          emailText = `Email: SENT (Resend API)`;
         } else {
           emailText = `Email: FAILED (${emailResult.error || 'Provider error'})`;
         }
       }
 
-      const notifDetail = `${smsText} | ${emailText}`;
-      const anySent = notifs.some((n: any) => n.status === 'SENT');
+      const notifDetail = `${smsText} • ${emailText}`;
+      const emailSent = emailResult?.status === 'SENT';
+      const smsSent = smsResult?.status === 'SENT';
+      const anySent = emailSent || smsSent;
 
       updateStep(
         4,
         anySent ? 'SUCCESS' : 'FAILED',
         notifDetail,
-        !anySent ? 'All notification providers reported delivery failures' : undefined
+        !anySent ? 'Notification channels reported restrictions/errors. Live GPS tracking remains active.' : undefined
       );
 
       // Toast feedback
       if (smsResult) {
         if (smsResult.status === 'SENT') {
           showToast(`✓ SMS delivered to ${smsResult.recipient}`, 'success');
+        } else if (smsResult.status === 'BLOCKED') {
+          showToast(`⚠️ SMS BLOCKED: Twilio Trial account restriction`, 'warning', 6000);
         } else {
-          showToast(`✕ SMS failed: ${smsResult.error || 'Template restriction'}`, 'error', 6000);
+          showToast(`✕ SMS failed: ${smsResult.error || 'Provider rejected request'}`, 'error', 6000);
         }
       }
 
       if (emailResult) {
         if (emailResult.status === 'SENT') {
-          showToast(`✓ Emergency email delivered to ${emailResult.recipient}`, 'success');
+          showToast(`✓ Emergency email delivered via Resend API to ${emailResult.recipient}`, 'success');
         } else {
           showToast(`✕ Email delivery failed: ${emailResult.error}`, 'error', 6000);
         }

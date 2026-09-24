@@ -127,36 +127,67 @@ export const EmergencyWorkflowModal: React.FC = () => {
 
                   {/* Independent SMS / Email Status Badges for Step 4 */}
                   {step.number === 4 && (
-                    <div className="mt-2.5 flex flex-wrap gap-2 pt-2 border-t border-white/10">
-                      {smsResult && (
-                        <div
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-medium border ${
-                            smsResult.status === 'SENT'
-                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                              : 'bg-red-500/10 text-red-300 border-red-500/30'
-                          }`}
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>
-                            SMS: {smsResult.status === 'SENT' ? 'SENT' : `FAILED (${smsResult.error || 'Trial restriction'})`}
-                          </span>
-                        </div>
-                      )}
+                    <div className="mt-3 space-y-2 pt-2.5 border-t border-white/10">
+                      <div className="flex flex-wrap gap-2.5">
+                        {smsResult && (
+                          <div
+                            className={`flex flex-col gap-0.5 px-3 py-1.5 rounded-lg text-xs font-mono border ${
+                              smsResult.status === 'SENT'
+                                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40'
+                                : smsResult.status === 'BLOCKED'
+                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/40'
+                                : 'bg-red-500/10 text-red-300 border-red-500/40'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 font-bold">
+                              {smsResult.status === 'SENT' ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : smsResult.status === 'BLOCKED' ? (
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                              ) : (
+                                <XCircle className="w-3.5 h-3.5 text-red-400" />
+                              )}
+                              <span>SMS: {smsResult.status}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-300 font-sans">
+                              {smsResult.status === 'SENT'
+                                ? `Delivered to ${smsResult.recipient}`
+                                : smsResult.status === 'BLOCKED'
+                                ? (smsResult.reason || 'Twilio Trial account restriction')
+                                : (smsResult.error || 'Provider rejected request')}
+                            </span>
+                          </div>
+                        )}
 
-                      {emailResult && (
-                        <div
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-medium border ${
-                            emailResult.status === 'SENT'
-                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                              : 'bg-red-500/10 text-red-300 border-red-500/30'
-                          }`}
-                        >
-                          <Mail className="w-3.5 h-3.5" />
-                          <span>
-                            Email: {emailResult.status === 'SENT' ? 'SENT' : `FAILED (${emailResult.error})`}
-                          </span>
-                        </div>
-                      )}
+                        {emailResult && (
+                          <div
+                            className={`flex flex-col gap-0.5 px-3 py-1.5 rounded-lg text-xs font-mono border ${
+                              emailResult.status === 'SENT'
+                                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40'
+                                : 'bg-red-500/10 text-red-300 border-red-500/40'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 font-bold">
+                              {emailResult.status === 'SENT' ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : (
+                                <XCircle className="w-3.5 h-3.5 text-red-400" />
+                              )}
+                              <span>Email: {emailResult.status}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-300 font-sans">
+                              {emailResult.status === 'SENT'
+                                ? `Delivered through Resend API to ${emailResult.recipient}`
+                                : (emailResult.error || 'Dispatch error')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="text-[11px] text-slate-400 italic pt-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0"></span>
+                        <span>Emergency tracking remains active even if an individual notification channel is unavailable.</span>
+                      </div>
                     </div>
                   )}
                 </div>

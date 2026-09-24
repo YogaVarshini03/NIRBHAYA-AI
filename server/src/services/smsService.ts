@@ -13,8 +13,10 @@ export interface SendSmsParams {
 
 export interface SmsResult {
   success: boolean;
+  status: 'SENT' | 'BLOCKED' | 'FAILED';
   providerMessageId?: string;
   error?: string;
+  reason?: string;
   provider: string;
 }
 
@@ -37,6 +39,7 @@ export async function sendEmergencySms(params: SendSmsParams): Promise<SmsResult
     const errorMsg = `Invalid phone number format (${params.toPhone}). Must be a valid 10-digit or E.164 international phone number.`;
     return {
       success: false,
+      status: 'FAILED',
       error: errorMsg,
       provider: 'Twilio (Validation Error)',
     };
@@ -76,6 +79,7 @@ Live tracking: ${params.trackingUrl}`;
 
     return {
       success: false,
+      status: 'FAILED',
       error: errorMsg,
       provider: 'Twilio (Unconfigured)',
     };
@@ -99,13 +103,25 @@ Live tracking: ${params.trackingUrl}`;
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: formParams.toString(),
+      signal: AbortSignal.timeout(10000), // 10s timeout
     });
 
     const data = await response.json() as any;
 
     if (!response.ok) {
       const errMsg = data.message || `Twilio error code: ${data.code}`;
-      console.error(`[SMS Service] Twilio request rejected:`, errMsg);
+      const isTrialRestriction =
+        errMsg.toLowerCase().includes('trial') ||
+        errMsg.toLowerCase().includes('template') ||
+        data.code === 21614 ||
+        data.code === 21608;
+
+      const finalStatus: 'BLOCKED' | 'FAILED' = isTrialRestriction ? 'BLOCKED' : 'FAILED';
+      const reason = isTrialRestriction
+        ? 'Twilio Trial account restriction: Predefined template required'
+        : undefined;
+
+      console.warn(`[SMS Service] Twilio request rejected [${finalStatus}]:`, errMsg);
 
       await db.execute(`
         INSERT INTO notifications (id, incident_id, recipient, type, status, provider, provider_message_id, error_message, created_at)
@@ -115,7 +131,7 @@ Live tracking: ${params.trackingUrl}`;
         params.incidentId,
         formattedTo,
         'SMS',
-        'FAILED',
+        finalStatus,
         'Twilio',
         null,
         errMsg,
@@ -124,7 +140,9 @@ Live tracking: ${params.trackingUrl}`;
 
       return {
         success: false,
+        status: finalStatus,
         error: errMsg,
+        reason,
         provider: 'Twilio',
       };
     }
@@ -148,11 +166,14 @@ Live tracking: ${params.trackingUrl}`;
 
     return {
       success: true,
+      status: 'SENT',
       providerMessageId: data.sid,
       provider: 'Twilio',
     };
   } catch (err: any) {
-    const errMsg = err?.message || 'Network error communicating with SMS gateway';
+    const errMsg = err?.name === 'TimeoutError'
+      ? 'Twilio API request timed out after 10s'
+      : (err?.message || 'Network error communicating with SMS gateway');
     console.error(`[SMS Service] Exception sending SMS:`, err);
 
     await db.execute(`
@@ -172,6 +193,7 @@ Live tracking: ${params.trackingUrl}`;
 
     return {
       success: false,
+      status: 'FAILED',
       error: errMsg,
       provider: 'Twilio',
     };
