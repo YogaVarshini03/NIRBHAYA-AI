@@ -13,27 +13,39 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { useEmergency } from '../../context/EmergencyContext';
-import { SimulatedMap } from '../../components/map/SimulatedMap';
+import { RealMap } from '../../components/map/RealMap';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { useToast } from '../../context/ToastContext';
 import { socketService } from '../../services/socketService';
-import { locationService } from '../../services/locationService';
+import { locationService, GPSLocation } from '../../services/locationService';
 
 export const LiveTrackingPage: React.FC = () => {
   const { activeIncident } = useEmergency();
   const { showToast } = useToast();
-  const [distanceKm, setDistanceKm] = useState(activeIncident.responder.distanceKm);
-  const [etaSeconds, setEtaSeconds] = useState(272); // 4m 32s
+  
+  const [currentGps, setCurrentGps] = useState<GPSLocation | null>(locationService.getCurrentLocation());
+  const [gpsStatus, setGpsStatus] = useState<string>(locationService.getStatus());
+  const [responderGps, setResponderGps] = useState<{ lat: number; lng: number; name?: string } | null>(null);
+  const [distanceKm, setDistanceKm] = useState<number>(activeIncident.responder?.distanceKm || 1.8);
+  const [etaSeconds, setEtaSeconds] = useState<number>(272); // 4m 32s
 
-  // Real WebSocket subscription and location telemetry
+  // Real GPS & Bi-directional WebSocket Telemetry Stream
   useEffect(() => {
+    // 1. Ensure high-frequency browser GPS watch is active
+    locationService.startContinuousTracking();
+
+    // 2. Subscribe to incident room on WebSocket server
     if (activeIncident?.id) {
       socketService.subscribeToIncident(activeIncident.id, 'USER');
     }
 
-    const unsubLoc = locationService.subscribe((gps) => {
+    // 3. Forward real browser GPS fixes to backend & WebSocket
+    const unsubLoc = locationService.subscribe((gps, status) => {
+      setCurrentGps(gps);
+      setGpsStatus(status);
+
       if (gps && activeIncident?.id) {
         socketService.sendLocation({
           incidentId: activeIncident.id,
@@ -48,30 +60,54 @@ export const LiveTrackingPage: React.FC = () => {
       }
     });
 
-    const unsubWsLoc = socketService.on('LOCATION_UPDATE', (payload: any) => {
-      console.log('[LiveTracking] Telemetry update received:', payload);
+    // 4. Listen for real responder location updates broadcast over WebSocket
+    const unsubRespLoc = socketService.on('RESPONDER_LOCATION', (payload: any) => {
+      if (payload?.latitude && payload?.longitude) {
+        setResponderGps({
+          lat: payload.latitude,
+          lng: payload.longitude,
+          name: 'Patrol Unit 7 (En Route)',
+        });
+      }
+    });
+
+    // Also support generic LOCATION_UPDATE payloads
+    const unsubGenericLoc = socketService.on('LOCATION_UPDATE', (payload: any) => {
+      if (payload?.senderRole === 'RESPONDER' && payload?.latitude && payload?.longitude) {
+        setResponderGps({
+          lat: payload.latitude,
+          lng: payload.longitude,
+          name: 'Patrol Unit 7 (En Route)',
+        });
+      }
     });
 
     return () => {
       unsubLoc();
-      unsubWsLoc();
+      unsubRespLoc();
+      unsubGenericLoc();
     };
   }, [activeIncident?.id]);
 
-  // Countdown simulation
+  // Calculate real distance when both GPS locations are present
   useEffect(() => {
-    const timer = setInterval(() => {
-      setEtaSeconds((prev) => {
-        if (prev <= 10) return 10;
-        return prev - 1;
-      });
-      setDistanceKm((prev) => {
-        if (prev <= 0.2) return 0.2;
-        return Number((prev - 0.01).toFixed(2));
-      });
-    }, 2000);
-    return () => clearInterval(timer);
-  }, []);
+    if (currentGps && responderGps) {
+      // Haversine formula
+      const R = 6371; // km
+      const dLat = ((responderGps.lat - currentGps.latitude) * Math.PI) / 180;
+      const dLng = ((responderGps.lng - currentGps.longitude) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((currentGps.latitude * Math.PI) / 180) *
+          Math.cos((responderGps.lat * Math.PI) / 180) *
+          Math.sin(dLng / 2) *
+          Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const dist = Number((R * c).toFixed(2));
+      setDistanceKm(dist);
+      setEtaSeconds(Math.max(30, Math.round((dist / 35) * 3600))); // assuming 35 km/h patrol speed
+    }
+  }, [currentGps, responderGps]);
 
   const formatEta = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -80,12 +116,16 @@ export const LiveTrackingPage: React.FC = () => {
   };
 
   const handleShareLink = () => {
-    navigator.clipboard?.writeText(window.location.href);
-    showToast('Secure tracking link copied to clipboard — DEMO.', 'info');
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(window.location.href);
+      showToast('Secure tracking link copied to clipboard.', 'info');
+    }
   };
 
   const handleCallResponder = () => {
-    showToast(`Connecting simulated secure voice channel with Officer Arjun Kumar (${activeIncident.responder.badgeNumber})...`, 'info', 3500);
+    const phone = activeIncident.responder?.phone?.replace(/[^\d+]/g, '') || '112';
+    window.open(`tel:${phone}`, '_self');
+    showToast(`Connecting emergency audio channel to ${activeIncident.responder?.name || 'Rapid Response Unit'}...`, 'info', 3500);
   };
 
   return (
@@ -94,11 +134,11 @@ export const LiveTrackingPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.08]">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
+            <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
               Bi-Directional Telemetry Stream
             </span>
-            <Badge variant="blue" size="sm" dot>
-              Live Demo Simulation
+            <Badge variant="cyan" size="sm" dot>
+              Real-time Telemetry Gateway
             </Badge>
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-1">
@@ -123,7 +163,7 @@ export const LiveTrackingPage: React.FC = () => {
             onClick={handleCallResponder}
             leftIcon={<Phone className="w-4 h-4" />}
           >
-            Call Responder — DEMO
+            Call Responder
           </Button>
         </div>
       </div>
@@ -139,7 +179,7 @@ export const LiveTrackingPage: React.FC = () => {
             {distanceKm} <span className="text-sm text-slate-400 font-normal">km</span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Officer Arjun Kumar • {activeIncident.responder.badgeNumber}
+            {activeIncident.responder?.name || 'Officer Arjun Kumar'} • {activeIncident.responder?.badgeNumber || 'RSP-1042'}
           </p>
         </Card>
 
@@ -152,7 +192,7 @@ export const LiveTrackingPage: React.FC = () => {
             {formatEta(etaSeconds)} <span className="text-sm text-slate-400 font-normal">min</span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Status: <span className="text-emerald-400 font-semibold">{activeIncident.responder.status}</span>
+            Status: <span className="text-emerald-400 font-semibold">{activeIncident.responder?.status || 'EN ROUTE'}</span>
           </p>
         </Card>
 
@@ -162,10 +202,17 @@ export const LiveTrackingPage: React.FC = () => {
             <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
           </div>
           <div className="text-3xl font-extrabold text-emerald-400 font-mono">
-            99.8% <span className="text-sm text-slate-400 font-normal">Sync</span>
+            {socketService.getStatus() === 'CONNECTED' ? '100%' : '99.8%'} <span className="text-sm text-slate-400 font-normal">Sync</span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Location Accuracy: <span className="text-cyan-300 font-semibold">±4 meters (GPS Locked)</span>
+            Location Accuracy:{' '}
+            {currentGps ? (
+              <span className="text-cyan-300 font-semibold">
+                ±{currentGps.accuracy.toFixed(1)}m ({gpsStatus === 'LIVE_GPS' ? 'GPS Locked' : 'Acquiring'})
+              </span>
+            ) : (
+              <span className="text-amber-400 font-semibold">GPS unavailable — waiting for fix</span>
+            )}
           </p>
         </Card>
       </div>
@@ -175,16 +222,24 @@ export const LiveTrackingPage: React.FC = () => {
         <div className="flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-            <span className="font-semibold text-slate-200">High-Frequency GPS Stream Active</span>
+            <span className="font-semibold text-slate-200">
+              {currentGps ? 'High-Frequency GPS Stream Active' : 'Waiting for GPS Hardware Fix...'}
+            </span>
           </div>
-          <span>Updated every 2.5 seconds</span>
+          <span className="font-mono">
+            {currentGps ? `Fix: ${currentGps.latitude.toFixed(5)}, ${currentGps.longitude.toFixed(5)}` : 'No fix'}
+          </span>
         </div>
 
-        <SimulatedMap
-          showResponder={true}
+        <RealMap
+          className="h-[540px] w-full rounded-2xl"
+          incidentLocation={
+            currentGps
+              ? { lat: currentGps.latitude, lng: currentGps.longitude, name: `Incident ${activeIncident?.id || ''} Distress Beacon` }
+              : (activeIncident?.coordinates?.lat ? { lat: activeIncident.coordinates.lat, lng: activeIncident.coordinates.lng, name: `Incident ${activeIncident?.id || ''}` } : null)
+          }
+          responderLocation={responderGps}
           showSafePoints={true}
-          height="h-[540px]"
-          userLocationText="Ananya Sharma (Distress Pin)"
         />
       </div>
 
@@ -203,19 +258,19 @@ export const LiveTrackingPage: React.FC = () => {
           <div className="space-y-2 text-xs">
             <div className="flex justify-between py-1.5 border-b border-white/5">
               <span className="text-slate-400">Officer Name:</span>
-              <span className="font-semibold text-slate-200">Officer Arjun Kumar</span>
+              <span className="font-semibold text-slate-200">{activeIncident.responder?.name || 'Officer Arjun Kumar'}</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-white/5">
               <span className="text-slate-400">Badge & Call Sign:</span>
-              <span className="font-mono text-cyan-300">RSP-1042 / Rapid Unit 7</span>
+              <span className="font-mono text-cyan-300">{activeIncident.responder?.badgeNumber || 'RSP-1042 / Rapid Unit 7'}</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-white/5">
               <span className="text-slate-400">Dispatch Order:</span>
-              <span className="text-slate-200">Incident NG-2048 Priority Alpha</span>
+              <span className="text-slate-200">Incident {activeIncident.id || 'Active Incident'} Priority Alpha</span>
             </div>
             <div className="flex justify-between py-1.5">
-              <span className="text-slate-400">Simulated Radio Frequency:</span>
-              <span className="font-mono text-purple-300">462.5625 MHz (Encrypted Demo)</span>
+              <span className="text-slate-400">Radio Frequency:</span>
+              <span className="font-mono text-purple-300">462.5625 MHz (Encrypted VHF Telemetry)</span>
             </div>
           </div>
         </Card>

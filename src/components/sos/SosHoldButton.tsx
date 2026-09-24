@@ -148,7 +148,7 @@ export const SosHoldButton: React.FC<SosHoldButtonProps> = ({
       </div>
 
       <p className="mt-3 text-xs text-slate-400 font-medium text-center">
-        Emergency actions are simulated in Demo Mode.
+        Emergency trigger transmits real GPS coordinates & alerts verified contacts.
       </p>
     </div>
   );

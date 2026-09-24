@@ -27,6 +27,8 @@ interface SimulatedMapProps {
   height?: string;
   interactive?: boolean;
   className?: string;
+  responderLocation?: { lat: number; lng: number; name?: string } | null;
+  incidentLocation?: { lat: number; lng: number; name?: string } | null;
 }
 
 export const SimulatedMap: React.FC<SimulatedMapProps> = ({
@@ -37,6 +39,8 @@ export const SimulatedMap: React.FC<SimulatedMapProps> = ({
   height = 'h-[460px]',
   interactive = true,
   className = '',
+  responderLocation,
+  incidentLocation,
 }) => {
   const [mapMode, setMapMode] = useState<'real' | 'tactical'>('real');
   const [zoom, setZoom] = useState(1);
@@ -62,6 +66,8 @@ export const SimulatedMap: React.FC<SimulatedMapProps> = ({
           className={`w-full ${height}`}
           routeGeometry={selectedRoute?.geometry}
           showSafePoints={showSafePoints}
+          responderLocation={responderLocation}
+          incidentLocation={incidentLocation}
           destination={selectedRoute && currentGps ? {
             lat: currentGps.latitude + 0.02,
             lng: currentGps.longitude + 0.02,
@@ -284,7 +290,7 @@ export const SimulatedMap: React.FC<SimulatedMapProps> = ({
       {/* Top Banner: Mode Indicator */}
       <div className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-navy-900/90 border border-white/10 backdrop-blur-md text-xs font-medium text-slate-300">
         <Radio className="w-3.5 h-3.5 text-electric-cyan animate-pulse" />
-        <span>Simulated Map — Demo Mode</span>
+        <span>Tactical Sector Grid Overlay</span>
       </div>
 
       {/* Map Interactive Controls */}

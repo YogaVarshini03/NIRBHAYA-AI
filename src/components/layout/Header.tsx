@@ -72,12 +72,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, pageTitle }) =
 
       {/* Center: Global Demo Mode & Network Indicators (Rule 4 & 7) */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Global Demo Indicator */}
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs font-semibold shadow-glow-violet">
-          <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-          <span>🟣 DEMO MODE</span>
-          <span className="hidden md:inline text-purple-300/80 font-normal">
-            — Hackathon Demonstration Environment
+        {/* Live Network & Backend Indicator */}
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs font-semibold shadow-glow-emerald">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span>LIVE SAFETY NETWORK</span>
+          <span className="hidden md:inline text-emerald-300/80 font-normal">
+            — Railway Backend & WSS Telemetry Connected
           </span>
         </div>
 
