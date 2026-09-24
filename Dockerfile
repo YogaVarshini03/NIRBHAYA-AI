@@ -2,19 +2,14 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install essential build dependencies for native modules
+# Install native compilation dependencies
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
-# Copy package manifests
-COPY package*.json ./
-
-# Install all dependencies
-RUN npm install
-
-# Copy application source code
+# Copy repository source code
 COPY . .
 
-# Build frontend static assets into dist/
+# Install dependencies and build frontend
+RUN npm install
 RUN npm run build
 
 # Default environment configuration
