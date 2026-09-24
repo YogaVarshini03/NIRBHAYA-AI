@@ -313,4 +313,3 @@ Dispatched securely by NIRBHAYA AI Emergency Response Network.`;
     provider: 'Email Gateway (Unconfigured)',
   };
 }
-}
