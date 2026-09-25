@@ -24,6 +24,7 @@ import { DEFAULT_INCIDENT } from '../../services/emergencyService';
 import { AppSettings } from '../../types';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { Badge } from '../../components/common/Badge';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 import { useToast } from '../../context/ToastContext';
 
@@ -43,6 +44,9 @@ export const SettingsPage: React.FC = () => {
       triplePressTrigger: true,
       demoMode: true,
       theme: 'dark',
+      autoEmergencyProtection: true,
+      routeDeviationProtection: true,
+      emergencyCountdownSeconds: 10,
     });
   });
 
@@ -239,6 +243,55 @@ export const SettingsPage: React.FC = () => {
                 checked={settings.triplePressTrigger}
                 onChange={() => toggleSetting('triplePressTrigger')}
                 className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+              />
+            </div>
+          </div>
+        </Card>
+
+        {/* Proactive AI Safety & Auto-Protection (Requirement 9 & 26) */}
+        <Card variant="glass" className="p-6 space-y-4 lg:col-span-2 border-purple-500/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              <span>Proactive AI Safety & Auto-Protection</span>
+            </div>
+            <Badge variant="violet" size="sm">
+              Neural Guardian
+            </Badge>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            Configure automated threat evaluation and autonomous safety intervention parameters.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-3.5 rounded-xl bg-navy-950/60 border border-white/5 flex items-start justify-between gap-3">
+              <div>
+                <span className="text-xs font-semibold text-white block">Automatic Emergency Protection</span>
+                <span className="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">
+                  When enabled, NIRBHAYA AI warns you when critical risk is detected and automatically activates SOS if you do not cancel the 10-second countdown.
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings.autoEmergencyProtection ?? true}
+                onChange={() => toggleSetting('autoEmergencyProtection')}
+                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 mt-1"
+              />
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-navy-950/60 border border-white/5 flex items-start justify-between gap-3">
+              <div>
+                <span className="text-xs font-semibold text-white block">Route Deviation Protection</span>
+                <span className="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">
+                  Alerts you if your movement drifts &gt;100m away from your selected safe corridor and initiates emergency countdown on persistent departure.
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings.routeDeviationProtection ?? true}
+                onChange={() => toggleSetting('routeDeviationProtection')}
+                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 mt-1"
               />
             </div>
           </div>

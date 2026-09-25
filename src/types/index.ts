@@ -36,6 +36,14 @@ export interface RiskAssessment {
   lastUpdated: string;
   locationName: string;
   explanation: string;
+  confidence?: number; // 0-100% data confidence
+  factorDescriptions?: {
+    location?: string;
+    time?: string;
+    crowd?: string;
+    lighting?: string;
+    historical?: string;
+  };
 }
 
 export interface RouteOption {
@@ -136,6 +144,19 @@ export interface SystemServiceStatus {
   subtext: string;
 }
 
+export type DeviationLevel = 'NORMAL' | 'MINOR_DEVIATION' | 'PERSISTENT_DEVIATION' | 'CRITICAL_DEVIATION';
+
+export interface RouteDeviationState {
+  isMonitoring: boolean;
+  plannedRoute: RouteOption | null;
+  destination: { lat: number; lng: number; name: string } | null;
+  deviationDistanceMeters: number;
+  deviationLevel: DeviationLevel;
+  consecutiveDeviations: number;
+  isDestinationReached: boolean;
+  lastCheckedTime: number;
+}
+
 export interface AppSettings {
   pushNotifications: boolean;
   soundAlerts: boolean;
@@ -144,6 +165,9 @@ export interface AppSettings {
   emergencyAudioCapture: boolean;
   secretShakeDetection: boolean;
   triplePressTrigger: boolean;
+  autoEmergencyProtection: boolean; // Automatic SOS when critical risk countdown expires
+  routeDeviationProtection: boolean; // Route deviation alert & escalation
+  emergencyCountdownSeconds: number; // Duration of countdown (10s default)
   demoMode: boolean;
   theme: 'dark' | 'light';
 }

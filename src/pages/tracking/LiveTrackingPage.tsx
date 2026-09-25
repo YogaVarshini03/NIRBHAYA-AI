@@ -20,6 +20,10 @@ import { Badge } from '../../components/common/Badge';
 import { useToast } from '../../context/ToastContext';
 import { socketService } from '../../services/socketService';
 import { locationService, GPSLocation } from '../../services/locationService';
+import { riskMonitoringService } from '../../services/riskMonitoringService';
+import { routeDeviationService } from '../../services/routeDeviationService';
+import { storageService, StorageKeys } from '../../services/storageService';
+import { RouteDeviationState, RiskAssessment, AppSettings } from '../../types';
 
 export const LiveTrackingPage: React.FC = () => {
   const { activeIncident } = useEmergency();
@@ -30,6 +34,30 @@ export const LiveTrackingPage: React.FC = () => {
   const [responderGps, setResponderGps] = useState<{ lat: number; lng: number; name?: string } | null>(null);
   const [distanceKm, setDistanceKm] = useState<number>(activeIncident.responder?.distanceKm || 1.8);
   const [etaSeconds, setEtaSeconds] = useState<number>(272); // 4m 32s
+
+  const [riskAssessment, setRiskAssessment] = useState<RiskAssessment>(() => riskMonitoringService.getStatus().lastAssessment);
+  const [deviationState, setDeviationState] = useState<RouteDeviationState>(() => routeDeviationService.getState());
+  const [secondsAgo, setSecondsAgo] = useState<number>(0);
+  const [settings] = useState<AppSettings>(() =>
+    storageService.getItem<AppSettings>(StorageKeys.APP_SETTINGS, {
+      autoEmergencyProtection: true,
+      routeDeviationProtection: true,
+      emergencyCountdownSeconds: 10,
+    } as any)
+  );
+
+  useEffect(() => {
+    const unsubRisk = riskMonitoringService.subscribe((assessment, secs) => {
+      setRiskAssessment(assessment);
+      setSecondsAgo(secs);
+    });
+    const unsubDev = routeDeviationService.subscribe((s) => setDeviationState({ ...s }));
+
+    return () => {
+      unsubRisk();
+      unsubDev();
+    };
+  }, []);
 
   // Real GPS & Bi-directional WebSocket Telemetry Stream
   useEffect(() => {
@@ -166,6 +194,106 @@ export const LiveTrackingPage: React.FC = () => {
             Call Responder
           </Button>
         </div>
+      </div>
+
+      {/* Live Proactive Risk & Protection Status Bar */}
+      <div className="p-4 rounded-2xl bg-navy-950/80 border border-white/10 shadow-xl backdrop-blur-md">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-center">
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              Risk Monitoring
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-sm font-bold text-white">ACTIVE</span>
+            </div>
+            <span className="text-[11px] text-slate-400 block mt-0.5">
+              Assessed {secondsAgo}s ago
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              Current Risk Score
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-extrabold text-white font-mono">
+                {riskAssessment.score} <span className="text-xs text-slate-400 font-normal">/ 100</span>
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                riskAssessment.level === 'CRITICAL'
+                  ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
+                  : riskAssessment.level === 'HIGH'
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                  : riskAssessment.level === 'MODERATE'
+                  ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40'
+                  : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+              }`}>
+                {riskAssessment.level}
+              </span>
+            </div>
+            <span className="text-[11px] text-cyan-300 block mt-0.5">
+              Confidence: {riskAssessment.confidence ?? 85}%
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              Automatic Protection
+            </span>
+            <div className="flex items-center gap-2">
+              <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                settings.autoEmergencyProtection
+                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}>
+                {settings.autoEmergencyProtection ? 'PROTECTION ON' : 'DISABLED'}
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-400 block mt-0.5">
+              10s Auto SOS Countdown
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              GPS Telemetry
+            </span>
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${currentGps ? 'bg-emerald-400' : 'bg-amber-400 animate-ping'}`} />
+              <span className="text-sm font-bold text-white">
+                {currentGps ? 'CONNECTED' : 'ACQUIRING'}
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-400 block mt-0.5 font-mono">
+              {currentGps ? `±${currentGps.accuracy.toFixed(1)}m precision` : 'Waiting for GPS...'}
+            </span>
+          </div>
+        </div>
+
+        {deviationState.isMonitoring && deviationState.plannedRoute && (
+          <div className="mt-3 pt-3 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-cyan-400 font-semibold">Active Safe Route:</span>
+              <span className="text-white font-medium">{deviationState.plannedRoute.name}</span>
+              <span className="text-slate-400">→ {deviationState.destination?.name}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-slate-400">
+                Route Deviation: <strong className={deviationState.deviationDistanceMeters > 50 ? 'text-amber-400' : 'text-emerald-400'}>{deviationState.deviationDistanceMeters}m</strong>
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                deviationState.deviationLevel === 'CRITICAL_DEVIATION'
+                  ? 'bg-red-500/20 text-red-400 border-red-500/40'
+                  : deviationState.deviationLevel === 'PERSISTENT_DEVIATION'
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                  : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+              }`}>
+                {deviationState.deviationLevel}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Top 3 Metric Cards: Responder Distance, Live ETA, Network Signal */}

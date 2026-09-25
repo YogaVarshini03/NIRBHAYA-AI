@@ -229,14 +229,14 @@ export const ResponderDashboard: React.FC = () => {
         <div className="lg:col-span-7 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-white">Tactical Incident Coordinate Map</h3>
-            <span className="text-xs text-slate-400">Incident Pin NG-2048</span>
+            <span className="text-xs text-slate-400">Incident Pin {selectedIncidentId || activeIncident?.id || 'Active'}</span>
           </div>
 
           <SimulatedMap
             showResponder={true}
             showSafePoints={true}
             height="h-[460px]"
-            userLocationText="Distress Beacon: NG-2048"
+            userLocationText={`Distress Beacon: ${selectedIncidentId || activeIncident?.id || 'Active'}`}
           />
         </div>
       </div>

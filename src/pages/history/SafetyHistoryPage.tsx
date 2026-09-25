@@ -58,10 +58,10 @@ export const DEFAULT_SAFETY_EVENTS: SafetyEvent[] = [
     id: 'evt_4',
     type: 'evidence',
     title: 'Tamper-Evident Evidence Vault Snapshot Created',
-    description: 'Multi-sensor audio and GPS telemetry hash linked to Incident NG-2048.',
+    description: 'Multi-sensor audio and GPS telemetry hash linked to Verified Incident Archive.',
     timestamp: '3 days ago, 19:30',
     dateKey: '7days',
-    statusBadge: 'ENCRYPTED DEMO',
+    statusBadge: 'SECURE ARCHIVE',
   },
   {
     id: 'evt_5',

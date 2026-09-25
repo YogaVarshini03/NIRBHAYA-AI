@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Navigation,
   MapPin,
@@ -14,6 +15,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { routeService } from '../../services/routeService';
+import { routeDeviationService } from '../../services/routeDeviationService';
 import { RouteOption } from '../../types';
 import { SimulatedMap } from '../../components/map/SimulatedMap';
 import { Card } from '../../components/common/Card';
@@ -24,10 +26,12 @@ import { useToast } from '../../context/ToastContext';
 import { locationService } from '../../services/locationService';
 
 export const SafeRoutePage: React.FC = () => {
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [gpsLoc, setGpsLoc] = useState(() => locationService.getCurrentLocation());
   const [currentLocation, setCurrentLocation] = useState('Acquiring Live GPS...');
   const [destination, setDestination] = useState('T. Nagar Commercial Hub');
+  const [destinationCoords, setDestinationCoords] = useState<{ lat: number; lng: number; name: string } | null>(null);
   const [destinationError, setDestinationError] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [routes, setRoutes] = useState<RouteOption[]>(() => routeService.getAvailableRoutes());
@@ -53,6 +57,7 @@ export const SafeRoutePage: React.FC = () => {
       return;
     }
     setDestinationError('');
+    setIsAnalyzing(true);
     if (!gpsLoc) {
       setDestinationError('GPS unavailable — please enable location permission to calculate routes from your location.');
       showToast('GPS unavailable — please enable location access.', 'warning');
@@ -63,15 +68,19 @@ export const SafeRoutePage: React.FC = () => {
     try {
       const lat = gpsLoc.latitude;
       const lng = gpsLoc.longitude;
-      const computed = await routeService.calculateRealRoutes(lat, lng, destination);
+      const { routes: computed, destination: dest } = await routeService.calculateRealRoutes(lat, lng, destination);
       setRoutes(computed);
+      setDestinationCoords(dest);
       if (computed.length > 0) {
-        setSelectedRoute(computed[1] || computed[0]);
-        routeService.saveSelectedRoute(computed[1] || computed[0]);
+        const safer = computed.find(r => r.type === 'safer') || computed[0];
+        setSelectedRoute(safer);
+        routeService.saveSelectedRoute(safer);
       }
-      showToast('Safer routes generated with real-time road topology and risk score.', 'success');
+      showToast(`Analyzed ${computed.length} real routes to ${dest.name || destination}. Safe corridors highlighted.`, 'success');
     } catch (err: any) {
-      showToast('Could not calculate real routes. Fallback corridor loaded.', 'info');
+      const errorMsg = err.message || 'Destination could not be found. Please try another address or landmark.';
+      setDestinationError(errorMsg);
+      showToast(errorMsg, 'error');
     } finally {
       setIsAnalyzing(false);
     }
@@ -81,6 +90,22 @@ export const SafeRoutePage: React.FC = () => {
     setSelectedRoute(route);
     routeService.saveSelectedRoute(route);
     showToast(`Route updated to: ${route.name}`, 'info');
+  };
+
+  const handleStartNavigation = () => {
+    if (!selectedRoute) return;
+    if (!destinationCoords && !gpsLoc) {
+      showToast('Please analyze destination with live GPS before starting navigation.', 'warning');
+      return;
+    }
+    const dest = destinationCoords || {
+      lat: gpsLoc!.latitude + 0.015,
+      lng: gpsLoc!.longitude + 0.015,
+      name: destination
+    };
+    routeDeviationService.startNavigation(selectedRoute, dest);
+    showToast(`🛡️ Live Route Deviation Protection Activated along ${selectedRoute.name}`, 'success');
+    navigate('/live-tracking');
   };
 
   return (
@@ -256,6 +281,27 @@ export const SafeRoutePage: React.FC = () => {
             showSafePoints={true}
             height="h-[520px]"
           />
+
+          <div className="p-4 rounded-xl bg-purple-950/40 border border-purple-500/30 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Live Route Deviation Protection Ready</span>
+              </div>
+              <p className="text-xs text-slate-300">
+                Continuous geofence monitoring will detect if you deviate &gt;100m from {selectedRoute.name}.
+              </p>
+            </div>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handleStartNavigation}
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shrink-0 w-full sm:w-auto"
+              leftIcon={<Navigation className="w-4 h-4" />}
+            >
+              Start Live Navigation
+            </Button>
+          </div>
 
           <div className="p-4 rounded-xl bg-navy-900/60 border border-white/5 text-xs text-slate-400 flex items-center justify-between">
             <span>Safe Point Nodes along this corridor: Police Haven (1.2 km), City Hospital (1.9 km)</span>

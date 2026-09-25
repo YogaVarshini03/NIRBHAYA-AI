@@ -41,6 +41,43 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
       return;
     }
 
+    // Duplicate Emergency Prevention (Rule 6 & 13)
+    const existingActive = await db.queryOne<any>(`
+      SELECT * FROM emergency_incidents
+      WHERE user_id = ? AND status NOT IN ('RESOLVED', 'CLOSED', 'CANCELLED')
+      ORDER BY created_at DESC LIMIT 1
+    `, [userId]);
+
+    if (existingActive) {
+      console.log(`[Emergency] Active incident ${existingActive.id} already in progress for user ${userId}. Synchronizing location.`);
+      await db.execute(`
+        UPDATE emergency_incidents 
+        SET latitude = ?, longitude = ?, accuracy = ?, updated_at = ?
+        WHERE id = ?
+      `, [latitude, longitude, accuracy, new Date().toISOString(), existingActive.id]);
+
+      // Record location update
+      await db.execute(`
+        INSERT INTO location_updates (id, incident_id, user_id, latitude, longitude, accuracy, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, [`loc_${uuidv4()}`, existingActive.id, userId, latitude, longitude, accuracy, new Date().toISOString()]);
+
+      // Find active tracking token
+      const session = await db.queryOne<any>(`
+        SELECT token FROM tracking_sessions WHERE incident_id = ? AND status = 'ACTIVE' LIMIT 1
+      `, [existingActive.id]);
+
+      res.json({
+        success: true,
+        incident: { ...existingActive, latitude, longitude, accuracy },
+        trackingToken: session ? session.token : `trk_${existingActive.id}`,
+        alreadyActive: true,
+        notificationResults: [],
+        message: `Incident ${existingActive.id} already active. Live telemetry synchronized.`
+      });
+      return;
+    }
+
     // Generate dynamic unique Incident ID
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const incidentId = `NG-${randomSuffix}`;

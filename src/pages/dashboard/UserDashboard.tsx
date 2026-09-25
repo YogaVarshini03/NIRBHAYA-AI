@@ -28,24 +28,46 @@ import { Badge } from '../../components/common/Badge';
 
 import { locationService, GPSLocation, LocationStatus } from '../../services/locationService';
 
+import { useEmergency } from '../../context/EmergencyContext';
+import { riskMonitoringService } from '../../services/riskMonitoringService';
+import { storageService, StorageKeys } from '../../services/storageService';
+import { AppSettings, RiskAssessment } from '../../types';
+
 export const UserDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const assessment = riskService.getAssessment();
+  const { triggerCriticalTest, triggerDeviationTest } = useEmergency();
+  const [riskAssessment, setRiskAssessment] = useState<RiskAssessment>(() => riskMonitoringService.getStatus().lastAssessment);
+  const [secondsAgo, setSecondsAgo] = useState<number>(0);
   const selectedRoute = routeService.getSelectedRoute();
   const contacts = contactService.getContacts();
   const onlineContactsCount = contacts.filter((c) => c.online).length;
 
   const [gpsLoc, setGpsLoc] = useState<GPSLocation | null>(() => locationService.getCurrentLocation());
   const [gpsStatus, setGpsStatus] = useState<LocationStatus>(() => locationService.getStatus());
+  const [settings] = useState<AppSettings>(() =>
+    storageService.getItem<AppSettings>(StorageKeys.APP_SETTINGS, {
+      autoEmergencyProtection: true,
+      routeDeviationProtection: true,
+    } as any)
+  );
 
   React.useEffect(() => {
     locationService.startContinuousTracking();
-    const unsub = locationService.subscribe((loc, status) => {
+    const unsubLoc = locationService.subscribe((loc, status) => {
       setGpsLoc(loc);
       setGpsStatus(status);
     });
-    return unsub;
+
+    const unsubRisk = riskMonitoringService.subscribe((assessment, secs) => {
+      setRiskAssessment(assessment);
+      setSecondsAgo(secs);
+    });
+
+    return () => {
+      unsubLoc();
+      unsubRisk();
+    };
   }, []);
 
   return (
@@ -77,6 +99,56 @@ export const UserDashboard: React.FC = () => {
           >
             Find Safer Route
           </Button>
+        </div>
+      </div>
+
+      {/* Proactive Live Safety Bar (Rule 2, 12, 16) */}
+      <div className="p-4 rounded-2xl bg-navy-900/80 border border-white/10 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+            <span className="font-bold text-white">Risk Monitoring:</span>
+            <span className="text-emerald-400 font-semibold font-mono">ACTIVE</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 border-l border-white/10 pl-4">
+            <span className="text-slate-400">Current Risk:</span>
+            <span className={`font-mono font-bold ${
+              riskAssessment.score > 60 ? 'text-red-400' : riskAssessment.score > 30 ? 'text-amber-400' : 'text-emerald-400'
+            }`}>
+              {riskAssessment.score} / 100 ({riskAssessment.level})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 border-l border-white/10 pl-4 hidden sm:flex">
+            <span className="text-slate-400">Auto-Protection:</span>
+            <span className="font-mono font-semibold text-purple-300">
+              {settings.autoEmergencyProtection ?? true ? 'ON' : 'OFF'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 border-l border-white/10 pl-4 hidden md:flex">
+            <span className="text-slate-400">Last Assessment:</span>
+            <span className="font-mono text-cyan-300">{secondsAgo}s ago</span>
+          </div>
+        </div>
+
+        {/* Development & Evaluator Safe Test Controls (Rule 16) */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={triggerCriticalTest}
+            className="px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 text-[11px] font-semibold transition-all"
+            title="Simulate Critical Risk Warning with 10s countdown"
+          >
+            🧪 Test Critical Alert
+          </button>
+          <button
+            onClick={triggerDeviationTest}
+            className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-semibold transition-all"
+            title="Simulate Route Deviation Alert"
+          >
+            🧪 Test Deviation
+          </button>
         </div>
       </div>
 
@@ -143,7 +215,7 @@ export const UserDashboard: React.FC = () => {
             <ChevronRight className="w-4 h-4 text-slate-400" />
           </div>
 
-          <RiskGauge score={assessment.score} level={assessment.level} size={150} strokeWidth={11} showDetails={false} />
+          <RiskGauge score={riskAssessment.score} level={riskAssessment.level} size={150} strokeWidth={11} showDetails={false} />
 
           {/* Quick Factor breakdown */}
           <div className="w-full grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-white/10">

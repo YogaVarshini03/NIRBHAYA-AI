@@ -13,8 +13,10 @@ import {
 import { SimulatedMap } from '../../components/map/SimulatedMap';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
+import { useEmergency } from '../../context/EmergencyContext';
 
 export const ResponderMapPage: React.FC = () => {
+  const { activeIncident } = useEmergency();
   const [showPatrols, setShowPatrols] = useState(true);
   const [showSanctuaries, setShowSanctuaries] = useState(true);
 
@@ -69,7 +71,7 @@ export const ResponderMapPage: React.FC = () => {
         showResponder={showPatrols}
         showSafePoints={showSanctuaries}
         height="h-[640px]"
-        userLocationText="Active Incident Node NG-2048"
+        userLocationText={activeIncident?.id ? `Active Incident Node ${activeIncident.id}` : 'Tactical Sector Monitoring Node'}
       />
     </div>
   );

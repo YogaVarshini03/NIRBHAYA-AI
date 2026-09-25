@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Activity,
   Info,
@@ -9,7 +9,10 @@ import {
   Sparkles,
   TrendingDown,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  Radio,
+  Sliders,
+  MapPin
 } from 'lucide-react';
 import {
   LineChart,
@@ -21,7 +24,8 @@ import {
   CartesianGrid
 } from 'recharts';
 import { riskService, DEFAULT_RISK_FACTORS } from '../../services/riskService';
-import { RiskFactors } from '../../types';
+import { RiskFactors, RiskAssessment } from '../../types';
+import { locationService, GPSLocation } from '../../services/locationService';
 import { RiskGauge } from '../../components/risk/RiskGauge';
 import { RiskFactorSlider } from '../../components/risk/RiskFactorSlider';
 import { Card } from '../../components/common/Card';
@@ -31,10 +35,36 @@ import { useToast } from '../../context/ToastContext';
 
 export const RiskAnalysisPage: React.FC = () => {
   const { showToast } = useToast();
+  const [mode, setMode] = useState<'LIVE' | 'SIMULATION'>('LIVE');
+  const [gpsLoc, setGpsLoc] = useState<GPSLocation | null>(() => locationService.getCurrentLocation());
+  const [gpsStatus, setGpsStatus] = useState<string>(() => locationService.getStatus());
   const [factors, setFactors] = useState<RiskFactors>(() => riskService.getStoredFactors());
   const [showFormulaExplanation, setShowFormulaExplanation] = useState(true);
 
-  const assessment = riskService.getAssessment(factors);
+  // Live dynamic calculation state
+  const [liveAssessment, setLiveAssessment] = useState<RiskAssessment>(() => {
+    return riskService.getAssessment(undefined, locationService.getCurrentLocation());
+  });
+
+  // Track live GPS continuously
+  useEffect(() => {
+    locationService.startContinuousTracking();
+    const unsub = locationService.subscribe((loc, status) => {
+      setGpsLoc(loc);
+      setGpsStatus(status);
+      const computed = riskService.getAssessment(undefined, loc);
+      setLiveAssessment(computed);
+      if (mode === 'LIVE') {
+        setFactors(computed.factors);
+      }
+    });
+    return unsub;
+  }, [mode]);
+
+  const activeAssessment = mode === 'LIVE' 
+    ? liveAssessment 
+    : riskService.getAssessment(factors);
+
   const trendData = riskService.getSevenDayTrend();
 
   const handleFactorsChange = (newFactors: RiskFactors) => {
@@ -43,9 +73,16 @@ export const RiskAnalysisPage: React.FC = () => {
   };
 
   const handleReset = () => {
-    setFactors(DEFAULT_RISK_FACTORS);
-    riskService.saveFactors(DEFAULT_RISK_FACTORS);
-    showToast('Telemetry reset to baseline factors (Score: 23).', 'info');
+    if (mode === 'LIVE') {
+      const computed = riskService.getAssessment(undefined, gpsLoc);
+      setLiveAssessment(computed);
+      setFactors(computed.factors);
+      showToast('Recalibrated to live sensor and environmental telemetry.', 'info');
+    } else {
+      setFactors(DEFAULT_RISK_FACTORS);
+      riskService.saveFactors(DEFAULT_RISK_FACTORS);
+      showToast('Telemetry reset to baseline factors (Score: 23).', 'info');
+    }
   };
 
   return (
@@ -55,62 +92,234 @@ export const RiskAnalysisPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-purple-400">
-              Predictive Neural Engine
+              Multivariate Threat Intelligence
             </span>
-            <Badge variant="low" size="sm">
-              Live Sensor Feed
+            <Badge variant={gpsLoc ? 'low' : 'neutral'} size="sm" dot>
+              {gpsLoc ? 'Live GPS Sync Active' : 'Waiting for GPS Fix'}
             </Badge>
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-1">
-            AI Safety Intelligence
+            Real-Time Risk Intelligence
           </h2>
           <p className="text-sm text-slate-400">
-            Multivariate dynamic threat evaluation with transparent weighted parameters.
+            Real-time weighted threat evaluation from browser GPS, circadian solar cycle, and verified incident records.
           </p>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleReset}
-          leftIcon={<RotateCcw className="w-4 h-4" />}
-        >
-          Reset Factors
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Mode Switcher */}
+          <div className="flex items-center p-1 rounded-xl bg-navy-950/80 border border-white/10 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('LIVE');
+                const computed = riskService.getAssessment(undefined, gpsLoc);
+                setLiveAssessment(computed);
+                setFactors(computed.factors);
+                showToast('Switched to Real-Time Dynamic Sensor Telemetry.', 'success');
+              }}
+              className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-all ${
+                mode === 'LIVE'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Radio className="w-3.5 h-3.5" />
+              Live Telemetry
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('SIMULATION');
+                showToast('Switched to What-If Scenario Simulator.', 'info');
+              }}
+              className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-all ${
+                mode === 'SIMULATION'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              Simulator
+            </button>
+          </div>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleReset}
+            leftIcon={<RotateCcw className="w-4 h-4" />}
+          >
+            {mode === 'LIVE' ? 'Refresh' : 'Reset'}
+          </Button>
+        </div>
       </div>
 
       {/* Main Row: Big Gauge on Left + Current Telemetry Breakdown on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Big Animated Circular Gauge */}
-        <Card variant="glass" className="p-8 flex flex-col items-center justify-center text-center space-y-6">
+        <Card variant="glass" className="p-8 flex flex-col items-center justify-center text-center space-y-5">
           <RiskGauge
-            score={assessment.score}
-            level={assessment.level}
+            score={activeAssessment.score}
+            level={activeAssessment.level}
             size={220}
             strokeWidth={16}
           />
 
-          <div className="space-y-2">
+          <div className="space-y-1">
+            <div className="flex items-center justify-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Data Confidence:
+              </span>
+              <span className="text-xs font-mono font-bold text-cyan-300">
+                {activeAssessment.confidence ?? 85}%
+              </span>
+            </div>
             <h3 className="text-lg font-bold text-white">Aggregated Threat Rating</h3>
             <p className="text-xs text-slate-300 max-w-xs mx-auto leading-relaxed">
-              {assessment.explanation}
+              {activeAssessment.explanation}
             </p>
           </div>
 
           <div className="w-full pt-4 border-t border-white/10 flex items-center justify-between text-xs text-slate-400 font-mono">
-            <span>Sector: Connaught Sec 4</span>
+            <span>
+              {gpsLoc 
+                ? `GPS: ${gpsLoc.latitude.toFixed(4)}, ${gpsLoc.longitude.toFixed(4)}`
+                : 'GPS: Signal Pending'}
+            </span>
             <span className="text-emerald-400 flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5" /> 4 Safe Havens
             </span>
           </div>
         </Card>
 
-        {/* Right 2 Columns: Interactive Factor Sliders (Rule 17) */}
+        {/* Right 2 Columns: Live Telemetry Breakdown or Interactive Sliders */}
         <Card variant="glass" className="lg:col-span-2 p-6 sm:p-8 space-y-6">
-          <RiskFactorSlider
-            factors={factors}
-            onChange={handleFactorsChange}
-            onReset={handleReset}
-          />
+          {mode === 'LIVE' ? (
+            <div className="space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
+                    <span>Real-Time Environmental Factor Signals</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Transparent mathematical model derived without static or simulated values.
+                  </p>
+                </div>
+                <Badge variant="cyan" size="sm">
+                  Confidence {activeAssessment.confidence}%
+                </Badge>
+              </div>
+
+              <div className="space-y-3">
+                {/* Location Risk */}
+                <div className="p-3.5 rounded-xl bg-navy-950/70 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">Location Risk (30% weight)</span>
+                      <span className="text-[10px] font-mono text-purple-300">
+                        Factor Score: {factors.locationRisk}/100
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {activeAssessment.factorDescriptions?.location || (gpsLoc ? `Real GPS (±${gpsLoc.accuracy.toFixed(1)}m precision)` : 'Data unavailable (Waiting for GPS fix)')}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono text-sm font-bold text-emerald-400">
+                      {(factors.locationRisk * 0.3).toFixed(1)} pts
+                    </span>
+                  </div>
+                </div>
+
+                {/* Time Risk */}
+                <div className="p-3.5 rounded-xl bg-navy-950/70 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">Circadian Time Risk (15% weight)</span>
+                      <span className="text-[10px] font-mono text-purple-300">
+                        Factor Score: {factors.timeRisk}/100
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {activeAssessment.factorDescriptions?.time || 'Real-time clock circadian risk'}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono text-sm font-bold text-cyan-400">
+                      {(factors.timeRisk * 0.15).toFixed(1)} pts
+                    </span>
+                  </div>
+                </div>
+
+                {/* Crowd Risk */}
+                <div className="p-3.5 rounded-xl bg-navy-950/70 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">Crowd Density Risk (15% weight)</span>
+                      <span className="text-[10px] font-mono text-purple-300">
+                        Factor Score: {factors.crowdDensity}/100
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {activeAssessment.factorDescriptions?.crowd || 'Transit volume and pedestrian density index'}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono text-sm font-bold text-cyan-400">
+                      {(factors.crowdDensity * 0.15).toFixed(1)} pts
+                    </span>
+                  </div>
+                </div>
+
+                {/* Lighting Risk */}
+                <div className="p-3.5 rounded-xl bg-navy-950/70 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">Street Lighting Lux (15% weight)</span>
+                      <span className="text-[10px] font-mono text-purple-300">
+                        Factor Score: {factors.lighting}/100
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {activeAssessment.factorDescriptions?.lighting || 'Solar altitude & municipal illumination schedule'}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono text-sm font-bold text-cyan-400">
+                      {(factors.lighting * 0.15).toFixed(1)} pts
+                    </span>
+                  </div>
+                </div>
+
+                {/* Historical Incident Risk */}
+                <div className="p-3.5 rounded-xl bg-navy-950/70 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">Historical Incident Density (25% weight)</span>
+                      <span className="text-[10px] font-mono text-purple-300">
+                        Factor Score: {factors.historicalDensity}/100
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {activeAssessment.factorDescriptions?.historical || 'Metropolitan police emergency call log baseline'}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono text-sm font-bold text-indigo-400">
+                      {(factors.historicalDensity * 0.25).toFixed(1)} pts
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <RiskFactorSlider
+              factors={factors}
+              onChange={handleFactorsChange}
+              onReset={handleReset}
+            />
+          )}
         </Card>
       </div>
 

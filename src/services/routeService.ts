@@ -105,41 +105,54 @@ export const routeService = {
     return DEMO_ROUTES;
   },
 
-  async calculateRealRoutes(originLat: number, originLng: number, destination: string): Promise<RouteOption[]> {
-    try {
-      const response = await fetch(apiUrl('/api/routes/calculate'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          originLat,
-          originLng,
-          destination,
-        }),
-      });
+  async calculateRealRoutes(
+    originLat: number,
+    originLng: number,
+    destination: string
+  ): Promise<{ routes: RouteOption[]; destination: { lat: number; lng: number; name: string } }> {
+    const response = await fetch(apiUrl('/api/routes/calculate'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        originLat,
+        originLng,
+        destination,
+      }),
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.routes && data.routes.length > 0) {
-          return data.routes.map((r: any) => ({
-            id: r.id,
-            name: r.name,
-            type: r.type,
-            durationMin: r.durationMin,
-            distanceKm: r.distanceKm,
-            riskScore: r.riskScore,
-            badge: r.badge,
-            reasons: r.reasons,
-            lightingQuality: r.riskScore < 25 ? 'Good' : r.riskScore < 40 ? 'Fair' : 'Poor',
-            pedestrianDensity: r.type === 'fastest' ? 'Low' : 'High',
-            safePointsNearby: r.safePointsCount || 3,
-            geometry: r.geometry,
-          }));
-        }
-      }
-    } catch (err) {
-      console.warn('[routeService] Backend route calculation offline, returning fallback routes:', err);
+    if (!response.ok) {
+      let errMsg = 'Destination could not be found. Please check spelling or specify a known landmark.';
+      try {
+        const errJson = await response.json();
+        if (errJson.error) errMsg = errJson.error;
+      } catch (e) {}
+      throw new Error(errMsg);
     }
-    return DEMO_ROUTES;
+
+    const data = await response.json();
+    if (!data.routes || data.routes.length === 0) {
+      throw new Error('No safe driving or walking corridor found to this location.');
+    }
+
+    const mappedRoutes: RouteOption[] = data.routes.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      type: r.type,
+      durationMin: r.durationMin,
+      distanceKm: r.distanceKm,
+      riskScore: r.riskScore,
+      badge: r.badge,
+      reasons: r.reasons,
+      lightingQuality: r.riskScore < 25 ? 'Good' : r.riskScore < 40 ? 'Fair' : 'Poor',
+      pedestrianDensity: r.type === 'fastest' ? 'Low' : 'High',
+      safePointsNearby: r.safePointsCount || 3,
+      geometry: r.geometry,
+    }));
+
+    return {
+      routes: mappedRoutes,
+      destination: data.destination || { lat: originLat + 0.02, lng: originLng + 0.02, name: destination },
+    };
   },
 
   getSelectedRoute(): RouteOption {

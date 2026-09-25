@@ -16,8 +16,9 @@ const KNOWN_DESTINATIONS: Record<string, { lat: number; lng: number; name: strin
 };
 
 // Geocode query helper using Nominatim or known list
-async function resolveDestinationCoordinates(query: string, originLat: number, originLng: number): Promise<{ lat: number; lng: number; name: string }> {
+async function resolveDestinationCoordinates(query: string, originLat: number, originLng: number): Promise<{ lat: number; lng: number; name: string } | null> {
   const normalized = query.toLowerCase().trim();
+  if (!normalized) return null;
   
   for (const [key, val] of Object.entries(KNOWN_DESTINATIONS)) {
     if (normalized.includes(key)) {
@@ -31,12 +32,12 @@ async function resolveDestinationCoordinates(query: string, originLat: number, o
     return { lat: coordParts[0], lng: coordParts[1], name: `Point (${coordParts[0].toFixed(4)}, ${coordParts[1].toFixed(4)})` };
   }
 
-  // Try Nominatim geocoding
+  // Try Nominatim OpenStreetMap Geocoding
   try {
     const encoded = encodeURIComponent(query);
     const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
+    const timeout = setTimeout(() => controller.abort(), 4000);
 
     const res = await fetch(nominatimUrl, {
       signal: controller.signal,
@@ -55,15 +56,10 @@ async function resolveDestinationCoordinates(query: string, originLat: number, o
       }
     }
   } catch (err) {
-    console.warn('[Routes] Nominatim lookup timed out or failed, using relative offset.');
+    console.warn('[Routes] Nominatim lookup timed out or failed:', err);
   }
 
-  // Fallback: 3km North-East of origin
-  return {
-    lat: originLat + 0.025,
-    lng: originLng + 0.025,
-    name: query || 'Selected Destination',
-  };
+  return null;
 }
 
 // POST /api/routes/calculate
@@ -74,7 +70,7 @@ routesRouter.post('/calculate', async (req: Request, res: Response): Promise<voi
       originLng,
       destLat,
       destLng,
-      destination = 'Safe Sanctuary',
+      destination = '',
     } = req.body;
 
     if (originLat === undefined || originLng === undefined || typeof originLat !== 'number' || typeof originLng !== 'number') {
@@ -91,6 +87,13 @@ routesRouter.post('/calculate', async (req: Request, res: Response): Promise<voi
 
     if (!targetLat || !targetLng) {
       const resolved = await resolveDestinationCoordinates(destination, originLat, originLng);
+      if (!resolved) {
+        res.status(404).json({
+          success: false,
+          error: 'Destination could not be found. Please check spelling or specify a known landmark.',
+        });
+        return;
+      }
       targetLat = resolved.lat;
       targetLng = resolved.lng;
       targetName = resolved.name;
