@@ -30,8 +30,8 @@ export const SilentSosPage: React.FC = () => {
     showToast('Listening...', 'info', 1500);
 
     setTimeout(() => {
-      setVoiceDetectedText('“Help” detected — DEMO');
-      showToast('“Help” detected — DEMO', 'emergency', 2000);
+      setVoiceDetectedText('“Help” detected — Emergency Trigger');
+      showToast('“Help” detected — Emergency Trigger', 'emergency', 2000);
 
       setTimeout(() => {
         setIsVoiceListening(false);

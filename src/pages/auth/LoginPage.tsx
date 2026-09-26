@@ -26,12 +26,28 @@ export const LoginPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleDemoLogin = () => {
-    loginAsDemoUser();
+  const handleDemoLogin = async () => {
+    setIsLoading(true);
+    await loginAsDemoUser();
+    setIsLoading(false);
     navigate('/dashboard');
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const setRoleCredentials = (roleType: 'USER' | 'RESPONDER' | 'ADMIN') => {
+    if (roleType === 'USER') {
+      setEmail('demo@nirbhaya.ai');
+      setPassword('demo1234');
+    } else if (roleType === 'RESPONDER') {
+      setEmail('arjun@police.gov.in');
+      setPassword('responder1234');
+    } else if (roleType === 'ADMIN') {
+      setEmail('admin@nirbhaya.ai');
+      setPassword('admin1234');
+    }
+    setErrorMessage('');
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -50,15 +66,20 @@ export const LoginPage: React.FC = () => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      const res = loginWithCredentials(email, password);
-      setIsLoading(false);
-      if (res.success) {
-        navigate('/dashboard');
+    const res = await loginWithCredentials(email, password);
+    setIsLoading(false);
+
+    if (res.success && res.user) {
+      if (res.user.role === 'RESPONDER') {
+        navigate('/responder');
+      } else if (res.user.role === 'ADMIN') {
+        navigate('/analytics');
       } else {
-        setErrorMessage(res.error || 'Authentication failed. Please verify credentials.');
+        navigate('/dashboard');
       }
-    }, 600);
+    } else {
+      setErrorMessage(res.error || 'Authentication failed. Please verify credentials.');
+    }
   };
 
   return (
@@ -141,34 +162,62 @@ export const LoginPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Prominent Demo User Login Button (Rule 10 & 11) */}
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/50 to-blue-950/50 border border-purple-500/30 space-y-2.5 shadow-glow-violet">
+          {/* Multi-User Role Access (Section 2 & 28) */}
+          <div className="p-4 rounded-2xl bg-navy-950/70 border border-white/10 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                Instant Demo Access
+                Select Role Account
               </span>
-              <span className="text-[10px] text-slate-400">Pre-configured</span>
+              <span className="text-[10px] text-slate-400 font-mono">Backend Verified</span>
             </div>
             <p className="text-xs text-slate-300">
-              Explore with verified demo profile: <strong>Ananya Sharma</strong> (demo@nirbhaya.ai)
+              Select an account identity to test multi-role separation (User, Responder, Admin):
             </p>
-            <Button
-              type="button"
-              variant="primary"
-              size="lg"
-              onClick={handleDemoLogin}
-              className="w-full font-bold shadow-lg"
-              rightIcon={<ArrowRight className="w-4 h-4" />}
-            >
-              Continue as Demo User
-            </Button>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setRoleCredentials('USER')}
+                className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all text-center ${
+                  email === 'demo@nirbhaya.ai'
+                    ? 'bg-purple-600/30 border-purple-500 text-white shadow-glow-violet'
+                    : 'bg-navy-900 border-white/10 text-slate-300 hover:border-white/30'
+                }`}
+              >
+                👤 User
+                <span className="block text-[10px] font-normal text-slate-400">Abhishek K</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoleCredentials('RESPONDER')}
+                className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all text-center ${
+                  email === 'arjun@police.gov.in'
+                    ? 'bg-blue-600/30 border-blue-500 text-white'
+                    : 'bg-navy-900 border-white/10 text-slate-300 hover:border-white/30'
+                }`}
+              >
+                🛡️ Responder
+                <span className="block text-[10px] font-normal text-slate-400">Officer Arjun</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoleCredentials('ADMIN')}
+                className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all text-center ${
+                  email === 'admin@nirbhaya.ai'
+                    ? 'bg-emerald-600/30 border-emerald-500 text-white'
+                    : 'bg-navy-900 border-white/10 text-slate-300 hover:border-white/30'
+                }`}
+              >
+                ⚙️ Admin
+                <span className="block text-[10px] font-normal text-slate-400">Safety Ops</span>
+              </button>
+            </div>
           </div>
 
           <div className="relative flex items-center justify-center">
             <div className="border-t border-white/10 w-full" />
             <span className="bg-navy-900 px-3 text-xs text-slate-400 uppercase tracking-wider font-mono">
-              Or Sign In With Email
+              Account Credentials
             </span>
           </div>
 

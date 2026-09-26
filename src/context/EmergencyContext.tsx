@@ -67,8 +67,8 @@ const DEFAULT_WORKFLOW_STEPS: WorkflowStepState[] = [
   {
     number: 4,
     status: 'IDLE',
-    title: 'Emergency Notifications (SMS & Email)',
-    detail: 'Dispatching SMS to primary contact and alert email via verified gateway.',
+    title: 'Emergency Phone Call, SMS & Email Notifications',
+    detail: 'Initiating automated outbound voice call, SMS dispatch, and emergency alert email to contacts.',
   },
   {
     number: 5,
@@ -136,8 +136,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       // Rule 6: Duplicate SOS Protection - do not trigger warning if an emergency is already active
       if (
         activeIncident.id !== 'NG-STANDBY' &&
-        activeIncident.status !== 'RESOLVED' &&
-        activeIncident.status !== 'RESOLVED — DEMO'
+        activeIncident.status !== 'RESOLVED'
       ) {
         return;
       }
@@ -149,8 +148,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
     const unsubDeviation = routeDeviationService.onDeviationEmergency((reason) => {
       if (
         activeIncident.id !== 'NG-STANDBY' &&
-        activeIncident.status !== 'RESOLVED' &&
-        activeIncident.status !== 'RESOLVED — DEMO'
+        activeIncident.status !== 'RESOLVED'
       ) {
         return;
       }
@@ -164,8 +162,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       if (state.deviationLevel === 'PERSISTENT_DEVIATION' || state.deviationLevel === 'CRITICAL_DEVIATION') {
         if (
           activeIncident.id === 'NG-STANDBY' ||
-          activeIncident.status === 'RESOLVED' ||
-          activeIncident.status === 'RESOLVED — DEMO'
+          activeIncident.status === 'RESOLVED'
         ) {
           setIsDeviationModalOpen(true);
         }
@@ -184,8 +181,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
     // Rule 6: Duplicate Prevention
     if (
       activeIncident.id !== 'NG-STANDBY' &&
-      activeIncident.status !== 'RESOLVED' &&
-      activeIncident.status !== 'RESOLVED — DEMO'
+      activeIncident.status !== 'RESOLVED'
     ) {
       showToast(`Incident ${activeIncident.id} is already in progress. Duplicate SOS prevented.`, 'warning');
       setIsCriticalWarningOpen(false);
@@ -245,35 +241,56 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       );
       setActiveStep(4);
 
-      // Step 4: Notification Results Inspection (Rule 14: Truthful reporting)
+      // Step 4: Notification Results Inspection (Section 6, 10, 13: Truthful reporting for Call, SMS, Email)
       const notifs = result.notificationResults || [];
+      const voiceResult = notifs.find((n: any) => n.type === 'VOICE');
       const smsResult = notifs.find((n: any) => n.type === 'SMS');
       const emailResult = notifs.find((n: any) => n.type === 'EMAIL');
 
-      let smsText = 'SMS: NOT ATTEMPTED';
+      let voiceText = 'Call: NOT CONFIGURED';
+      if (voiceResult) {
+        if (voiceResult.status === 'INITIATED') {
+          voiceText = `Call: INITIATED (Twilio Voice to ${voiceResult.recipient})`;
+        } else if (voiceResult.status === 'CONNECTED') {
+          voiceText = `Call: CONNECTED`;
+        } else if (voiceResult.status === 'BLOCKED') {
+          voiceText = `Call: BLOCKED (Trial Caller ID restriction)`;
+        } else if (voiceResult.status === 'NOT CONFIGURED') {
+          voiceText = `Call: NOT CONFIGURED`;
+        } else {
+          voiceText = `Call: FAILED (${voiceResult.error || 'Provider rejected'})`;
+        }
+      }
+
+      let smsText = 'SMS: NOT CONFIGURED';
       if (smsResult) {
         if (smsResult.status === 'SENT') {
           smsText = `SMS: SENT to ${smsResult.recipient}`;
         } else if (smsResult.status === 'BLOCKED') {
           smsText = `SMS: BLOCKED (${smsResult.reason || 'Twilio Trial restriction'})`;
+        } else if (smsResult.status === 'NOT CONFIGURED') {
+          smsText = `SMS: NOT CONFIGURED`;
         } else {
           smsText = `SMS: FAILED (${smsResult.error || 'Provider rejected request'})`;
         }
       }
 
-      let emailText = 'Email: NOT ATTEMPTED';
+      let emailText = 'Email: NOT CONFIGURED';
       if (emailResult) {
         if (emailResult.status === 'SENT') {
-          emailText = `Email: SENT (Resend API)`;
+          emailText = `Email: SENT (${emailResult.recipient})`;
+        } else if (emailResult.status === 'NOT CONFIGURED') {
+          emailText = `Email: NOT CONFIGURED`;
         } else {
           emailText = `Email: FAILED (${emailResult.error || 'Provider error'})`;
         }
       }
 
-      const notifDetail = `${smsText} • ${emailText}`;
+      const notifDetail = `${voiceText} • ${smsText} • ${emailText}`;
+      const callActive = voiceResult?.status === 'INITIATED' || voiceResult?.status === 'CONNECTED';
       const emailSent = emailResult?.status === 'SENT';
       const smsSent = smsResult?.status === 'SENT';
-      const anySent = emailSent || smsSent;
+      const anySent = callActive || emailSent || smsSent;
 
       updateStep(
         4,
@@ -283,12 +300,22 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       );
 
       // Toast feedback
+      if (voiceResult) {
+        if (voiceResult.status === 'INITIATED' || voiceResult.status === 'CONNECTED') {
+          showToast(`📞 Voice call initiated to ${voiceResult.recipient}`, 'success');
+        } else if (voiceResult.status === 'BLOCKED') {
+          showToast(`⚠️ Voice call BLOCKED: Twilio Trial unverified caller ID`, 'warning', 6000);
+        } else if (voiceResult.status !== 'NOT CONFIGURED') {
+          showToast(`✕ Voice call failed: ${voiceResult.error}`, 'error', 6000);
+        }
+      }
+
       if (smsResult) {
         if (smsResult.status === 'SENT') {
           showToast(`✓ SMS delivered to ${smsResult.recipient}`, 'success');
         } else if (smsResult.status === 'BLOCKED') {
           showToast(`⚠️ SMS BLOCKED: Twilio Trial account restriction`, 'warning', 6000);
-        } else {
+        } else if (smsResult.status !== 'NOT CONFIGURED') {
           showToast(`✕ SMS failed: ${smsResult.error || 'Provider rejected request'}`, 'error', 6000);
         }
       }
@@ -296,7 +323,7 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
       if (emailResult) {
         if (emailResult.status === 'SENT') {
           showToast(`✓ Emergency alert delivered to ${emailResult.recipient}`, 'success');
-        } else {
+        } else if (emailResult.status !== 'NOT CONFIGURED') {
           showToast(`✕ Email delivery failed: ${emailResult.error}`, 'error', 6000);
         }
       }

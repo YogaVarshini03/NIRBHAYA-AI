@@ -96,7 +96,7 @@ analyticsRouter.get('/', async (req: Request, res: Response): Promise<void> => {
         evidenceVaultItems: totalEvidenceCount,
         dispatchedAlerts: totalNotificationsSent,
         avgResponseTimeSeconds,
-        avgResponseTimeDisplay: avgResponseTimeDisplay !== 'N/A' ? avgResponseTimeDisplay : '3m 12s (benchmark)',
+        avgResponseTimeDisplay: avgResponseTimeDisplay !== 'N/A' ? avgResponseTimeDisplay : 'Insufficient data',
       },
       riskDistribution,
       recentIncidents,
@@ -106,3 +106,36 @@ analyticsRouter.get('/', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// GET /api/analytics/heatmap - Retrieve authentic incident coordinates from database
+analyticsRouter.get('/heatmap', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const incidents = await db.query<any>(`
+      SELECT id, risk_score, risk_level, latitude, longitude, location_name, status, created_at
+      FROM emergency_incidents
+      WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 100
+    `);
+
+    res.json({
+      success: true,
+      count: incidents.length,
+      hasData: incidents.length > 0,
+      message: incidents.length > 0 ? 'Authentic incident coordinates loaded' : 'NO INCIDENT DATA AVAILABLE',
+      incidents: incidents.map((inc) => ({
+        id: inc.id,
+        lat: Number(inc.latitude),
+        lng: Number(inc.longitude),
+        riskScore: inc.risk_score,
+        riskLevel: inc.risk_level,
+        locationName: inc.location_name,
+        status: inc.status,
+        timestamp: inc.created_at,
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+

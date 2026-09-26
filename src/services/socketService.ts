@@ -100,6 +100,16 @@ class SocketService {
     }
   }
 
+  public subscribeToAll(role: string = 'RESPONDER'): void {
+    this.currentRole = role;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'SUBSCRIBE_ALL',
+        role,
+      }));
+    }
+  }
+
   public sendLocation(data: {
     incidentId?: string;
     latitude: number;

@@ -377,28 +377,28 @@ export const LiveTrackingPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-bold text-white flex items-center gap-2">
               <Car className="w-4 h-4 text-blue-400" />
-              <span>Assigned Rapid Patrol Details</span>
+              <span>Assigned Safety Responder</span>
             </h4>
             <Badge variant="blue" size="sm">
-              PCR 14 Interceptor
+              NETWORK RESPONDER
             </Badge>
           </div>
           <div className="space-y-2 text-xs">
             <div className="flex justify-between py-1.5 border-b border-white/5">
-              <span className="text-slate-400">Officer Name:</span>
-              <span className="font-semibold text-slate-200">{activeIncident.responder?.name || 'Officer Arjun Kumar'}</span>
+              <span className="text-slate-400">Responder Name:</span>
+              <span className="font-semibold text-slate-200">{activeIncident.responder?.name || 'Authorized Network Responder'}</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-white/5">
-              <span className="text-slate-400">Badge & Call Sign:</span>
-              <span className="font-mono text-cyan-300">{activeIncident.responder?.badgeNumber || 'RSP-1042 / Rapid Unit 7'}</span>
+              <span className="text-slate-400">Responder ID:</span>
+              <span className="font-mono text-cyan-300">{activeIncident.responder?.badgeNumber || 'RSP-ACTIVE'}</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-white/5">
-              <span className="text-slate-400">Dispatch Order:</span>
-              <span className="text-slate-200">Incident {activeIncident.id || 'Active Incident'} Priority Alpha</span>
+              <span className="text-slate-400">Incident Linked:</span>
+              <span className="text-slate-200">{activeIncident.id || 'Active Incident'}</span>
             </div>
             <div className="flex justify-between py-1.5">
-              <span className="text-slate-400">Radio Frequency:</span>
-              <span className="font-mono text-purple-300">462.5625 MHz (Encrypted VHF Telemetry)</span>
+              <span className="text-slate-400">Official Police API:</span>
+              <span className="font-mono text-amber-300">Not configured (Application Network Active)</span>
             </div>
           </div>
         </Card>
@@ -410,23 +410,23 @@ export const LiveTrackingPage: React.FC = () => {
               <span>Sanctuary & Safety Hubs</span>
             </h4>
             <Badge variant="low" size="sm">
-              2 Open Havens
+              Safe Havens
             </Badge>
           </div>
           <div className="space-y-2.5 text-xs text-slate-300">
             <div className="p-2.5 rounded-xl bg-navy-900/60 border border-white/5 flex items-center justify-between">
               <div>
-                <p className="font-semibold text-white">Central Police Station Node</p>
-                <p className="text-[10px] text-slate-400">1.2 km North-West • Armed Personnel On Duty</p>
+                <p className="font-semibold text-white">Emergency Medical Hub</p>
+                <p className="text-[10px] text-slate-400">Public Trauma Center • Safe Access</p>
               </div>
               <span className="text-emerald-400 font-mono font-bold">OPEN 24/7</span>
             </div>
             <div className="p-2.5 rounded-xl bg-navy-900/60 border border-white/5 flex items-center justify-between">
               <div>
-                <p className="font-semibold text-white">City General Trauma Center</p>
-                <p className="text-[10px] text-slate-400">1.9 km East • Secure Safe Haven Entry</p>
+                <p className="font-semibold text-white">Public Safety Haven Point</p>
+                <p className="text-[10px] text-slate-400">Designated Security Sanctuary</p>
               </div>
-              <span className="text-emerald-400 font-mono font-bold">OPEN 24/7</span>
+              <span className="text-emerald-400 font-mono font-bold">ACTIVE</span>
             </div>
           </div>
         </Card>

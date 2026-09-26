@@ -83,7 +83,7 @@ export const SettingsPage: React.FC = () => {
             Settings & Telemetry Controls
           </h2>
           <p className="text-sm text-slate-400">
-            Configure privacy boundaries, emergency hardware triggers, and demo simulation parameters.
+            Configure privacy boundaries, emergency hardware triggers, and system operating parameters.
           </p>
         </div>
 
@@ -93,7 +93,7 @@ export const SettingsPage: React.FC = () => {
           onClick={() => setIsResetDialogOpen(true)}
           leftIcon={<RotateCcw className="w-4 h-4" />}
         >
-          Reset Demo Data
+          Reset Preferences
         </Button>
       </div>
 
@@ -108,7 +108,7 @@ export const SettingsPage: React.FC = () => {
           <div className="space-y-2 text-xs">
             <div className="flex justify-between py-2 border-b border-white/5">
               <span className="text-slate-400">Full Name:</span>
-              <span className="font-semibold text-slate-200">{user?.name || 'Ananya Sharma'}</span>
+              <span className="font-semibold text-slate-200">{user?.name || 'Abhishek K'}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-white/5">
               <span className="text-slate-400">Authenticated Email:</span>
@@ -116,11 +116,11 @@ export const SettingsPage: React.FC = () => {
             </div>
             <div className="flex justify-between py-2 border-b border-white/5">
               <span className="text-slate-400">Registered Phone:</span>
-              <span className="font-mono text-slate-200">{user?.phone || '+91 98765 43210'}</span>
+              <span className="font-mono text-slate-200">{user?.phone || '+91 93455 96322'}</span>
             </div>
             <div className="flex justify-between py-2">
-              <span className="text-slate-400">Demo Session Status:</span>
-              <span className="text-emerald-400 font-semibold">Active & Persistent</span>
+              <span className="text-slate-400">Session Status:</span>
+              <span className="text-emerald-400 font-semibold">Operational & Verified</span>
             </div>
           </div>
         </Card>
@@ -298,14 +298,14 @@ export const SettingsPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* Reset Confirmation Dialog (Rule 56) */}
+      {/* Reset Confirmation Dialog */}
       <ConfirmDialog
         isOpen={isResetDialogOpen}
         onClose={() => setIsResetDialogOpen(false)}
         onConfirm={handleResetDemoData}
-        title="Reset All Demo Data?"
-        message="This will restore all contacts, evidence files, risk parameters, and emergency logs back to initial factory demo state. Real browser files will never be touched."
-        confirmText="Reset Demo Data"
+        title="Reset Local Preferences?"
+        message="This will restore local UI display settings, alerts, and temporary thresholds back to default operating values. Database records will remain preserved."
+        confirmText="Reset Preferences"
         isDestructive
       />
     </div>

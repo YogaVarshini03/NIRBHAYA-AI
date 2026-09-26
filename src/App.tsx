@@ -36,12 +36,37 @@ import { SafetyAnalyticsPage } from './pages/analytics/SafetyAnalyticsPage';
 import { IncidentHeatmapPage } from './pages/analytics/IncidentHeatmapPage';
 import { SystemMonitoringPage } from './pages/analytics/SystemMonitoringPage';
 
-// Protected Route Guard (Rule 44)
+// Protected Route Guard
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
+  return <>{children}</>;
+};
+
+// Strict Role-Based Route Guard (Section 2: USER, RESPONDER, ADMIN)
+const RoleRoute: React.FC<{ allowedRoles: ('USER' | 'RESPONDER' | 'ADMIN')[]; children: React.ReactNode }> = ({
+  allowedRoles,
+  children,
+}) => {
+  const { user, isAuthenticated } = useAuth();
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Admin has access to all operational routes
+  if (user.role === 'ADMIN') {
+    return <>{children}</>;
+  }
+
+  if (!allowedRoles.includes(user.role)) {
+    if (user.role === 'RESPONDER') {
+      return <Navigate to="/responder" replace />;
+    }
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return <>{children}</>;
 };
 
@@ -67,26 +92,27 @@ export const App: React.FC = () => {
                     </ProtectedRoute>
                   }
                 >
-                  <Route path="/dashboard" element={<UserDashboard />} />
-                  <Route path="/risk-analysis" element={<RiskAnalysisPage />} />
-                  <Route path="/safe-route" element={<SafeRoutePage />} />
-                  <Route path="/sos" element={<SilentSosPage />} />
+                  {/* Citizen User Routes */}
+                  <Route path="/dashboard" element={<RoleRoute allowedRoles={['USER']}><UserDashboard /></RoleRoute>} />
+                  <Route path="/risk-analysis" element={<RoleRoute allowedRoles={['USER']}><RiskAnalysisPage /></RoleRoute>} />
+                  <Route path="/safe-route" element={<RoleRoute allowedRoles={['USER']}><SafeRoutePage /></RoleRoute>} />
+                  <Route path="/sos" element={<RoleRoute allowedRoles={['USER']}><SilentSosPage /></RoleRoute>} />
                   <Route path="/live-tracking" element={<LiveTrackingPage />} />
-                  <Route path="/evidence" element={<EvidenceLockerPage />} />
-                  <Route path="/contacts" element={<TrustedContactsPage />} />
+                  <Route path="/evidence" element={<RoleRoute allowedRoles={['USER']}><EvidenceLockerPage /></RoleRoute>} />
+                  <Route path="/contacts" element={<RoleRoute allowedRoles={['USER']}><TrustedContactsPage /></RoleRoute>} />
                   <Route path="/history" element={<SafetyHistoryPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
 
                   {/* Responder Command Routes */}
-                  <Route path="/responder" element={<ResponderDashboard />} />
-                  <Route path="/responder/active" element={<ActiveEmergencyPage />} />
-                  <Route path="/responder/map" element={<ResponderMapPage />} />
-                  <Route path="/responder/incident/:id" element={<IncidentDetailPage />} />
+                  <Route path="/responder" element={<RoleRoute allowedRoles={['RESPONDER']}><ResponderDashboard /></RoleRoute>} />
+                  <Route path="/responder/active" element={<RoleRoute allowedRoles={['RESPONDER']}><ActiveEmergencyPage /></RoleRoute>} />
+                  <Route path="/responder/map" element={<RoleRoute allowedRoles={['RESPONDER']}><ResponderMapPage /></RoleRoute>} />
+                  <Route path="/responder/incident/:id" element={<RoleRoute allowedRoles={['RESPONDER']}><IncidentDetailPage /></RoleRoute>} />
 
-                  {/* Analytics & System Routes */}
-                  <Route path="/analytics" element={<SafetyAnalyticsPage />} />
-                  <Route path="/analytics/heatmap" element={<IncidentHeatmapPage />} />
-                  <Route path="/analytics/system" element={<SystemMonitoringPage />} />
+                  {/* Analytics & System Admin Routes */}
+                  <Route path="/analytics" element={<RoleRoute allowedRoles={['ADMIN']}><SafetyAnalyticsPage /></RoleRoute>} />
+                  <Route path="/analytics/heatmap" element={<RoleRoute allowedRoles={['ADMIN']}><IncidentHeatmapPage /></RoleRoute>} />
+                  <Route path="/analytics/system" element={<RoleRoute allowedRoles={['ADMIN']}><SystemMonitoringPage /></RoleRoute>} />
                 </Route>
 
                 {/* Catch-all Fallback Route */}

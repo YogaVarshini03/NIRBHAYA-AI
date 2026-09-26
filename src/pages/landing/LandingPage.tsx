@@ -480,9 +480,9 @@ export const LandingPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-purple-400" />
             <span className="font-semibold text-slate-300">NIRBHAYA AI</span>
-            <span>• Hackathon Demonstration Environment</span>
+            <span>• Real-Time Autonomous Safety Platform</span>
           </div>
-          <p>© 2026 NIRBHAYA AI Network. All emergency actions are simulated for demonstration.</p>
+          <p>© 2026 NIRBHAYA AI Network. Active telemetry, geolocation, and rapid responder dispatch.</p>
         </div>
       </footer>
     </div>

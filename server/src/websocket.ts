@@ -67,6 +67,19 @@ async function handleWsMessage(ws: WebSocket, data: any) {
       break;
     }
 
+    case 'SUBSCRIBE_RESPONDER':
+    case 'SUBSCRIBE_ALL': {
+      client.incidentId = 'ALL';
+      client.role = 'RESPONDER';
+      console.log(`[WebSocket] Responder connected and subscribed to live network dispatches`);
+      ws.send(JSON.stringify({
+        type: 'SUBSCRIBED_ALL',
+        role: 'RESPONDER',
+        status: 'ACTIVE'
+      }));
+      break;
+    }
+
     case 'LOCATION_UPDATE': {
       // User or Responder broadcasting live coordinates
       const { incidentId, latitude, longitude, accuracy, speed, heading, altitude, senderRole } = data;
@@ -111,7 +124,7 @@ async function handleWsMessage(ws: WebSocket, data: any) {
         console.error('[WebSocket] Failed to save location update to DB:', err);
       }
 
-      // Broadcast to all viewers subscribed to this incident
+      // Broadcast to all viewers subscribed to this incident and all active responders
       broadcastToIncident(incidentId, {
         type: senderRole === 'RESPONDER' ? 'RESPONDER_LOCATION' : 'USER_LOCATION',
         incidentId,
@@ -148,7 +161,9 @@ export function broadcastToIncident(incidentId: string | undefined, payload: any
   const messageStr = JSON.stringify(payload);
 
   clients.forEach((client, ws) => {
-    if (client.incidentId === incidentId && ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
+    // Deliver to client if subscribed directly, or if client is a responder monitoring all incidents
+    const isTarget = client.incidentId === incidentId || client.incidentId === 'ALL' || client.role === 'RESPONDER';
+    if (isTarget && ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
       ws.send(messageStr);
     }
   });

@@ -6,14 +6,14 @@ import { apiUrl } from './apiConfig';
 import { socketService } from './socketService';
 
 export const DEFAULT_RESPONDER: Responder = {
-  id: 'rsp_arjun_kumar_1042',
-  name: 'Officer Arjun Kumar',
-  badgeNumber: 'TN-POL-4412 / Rapid Response Unit',
+  id: 'RSP-1042',
+  name: 'Officer Arjun Kumar (Application Responder)',
+  badgeNumber: 'APP-RSP-1042 / Community Safety Network',
   distanceKm: 1.8,
   etaMinutes: 4.5,
   etaFormatted: '04:32',
   status: 'STANDBY',
-  vehicle: 'Interceptor PCR Patrol 14',
+  vehicle: 'Patrol Vehicle 14',
   phone: '+91 112 000 1042',
 };
 
@@ -62,14 +62,24 @@ export const emergencyService = {
     const accuracy = gps.accuracy;
     const locationName = `Live GPS (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
 
+    // Retrieve active authenticated user ID (Section 1)
+    let currentUserId = 'USR-7F42A91C';
+    try {
+      const stored = localStorage.getItem('nirbhaya_user_session');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.id) currentUserId = parsed.id;
+      }
+    } catch {}
+
     const endpoint = apiUrl('/api/emergency/create');
-    console.log(`[emergencyService] Sending SOS dispatch to backend: ${endpoint}`);
+    console.log(`[emergencyService] Sending SOS dispatch to backend for ${currentUserId}: ${endpoint}`);
 
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        userId: 'usr_ananya_01',
+        userId: currentUserId,
         latitude: lat,
         longitude: lng,
         accuracy,
@@ -220,6 +230,51 @@ export const emergencyService = {
       console.warn('[emergencyService] Remote navigate call failed:', err);
     }
     return destinationUrl;
+  },
+
+  async enRouteIncidentReal(incidentId: string): Promise<EmergencyIncident> {
+    try {
+      const endpoint = apiUrl(`/api/emergency/${incidentId}/en-route`);
+      await fetch(endpoint, { method: 'POST' });
+    } catch (err) {
+      console.warn('[emergencyService] Remote en-route failed:', err);
+    }
+    const inc = this.getActiveIncident();
+    inc.status = 'EN_ROUTE';
+    inc.responder.status = 'EN ROUTE';
+    this.saveIncident(inc);
+    return inc;
+  },
+
+  async onSceneIncidentReal(incidentId: string): Promise<EmergencyIncident> {
+    try {
+      const endpoint = apiUrl(`/api/emergency/${incidentId}/on-scene`);
+      await fetch(endpoint, { method: 'POST' });
+    } catch (err) {
+      console.warn('[emergencyService] Remote on-scene failed:', err);
+    }
+    const inc = this.getActiveIncident();
+    inc.status = 'ON_SCENE';
+    inc.responder.status = 'ON SCENE';
+    this.saveIncident(inc);
+    return inc;
+  },
+
+  async cancelIncidentReal(incidentId: string): Promise<EmergencyIncident> {
+    try {
+      const endpoint = apiUrl(`/api/emergency/${incidentId}/cancel`);
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Cancelled by user' }),
+      });
+    } catch (err) {
+      console.warn('[emergencyService] Remote cancel failed:', err);
+    }
+    const inc = this.getActiveIncident();
+    inc.status = 'RESOLVED';
+    this.saveIncident(inc);
+    return inc;
   },
 
   async resolveIncidentReal(incidentId: string): Promise<EmergencyIncident> {

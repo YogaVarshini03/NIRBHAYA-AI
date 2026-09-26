@@ -64,8 +64,7 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
     // If an incident is already active, close warning immediately (Rule 6: Prevent Duplicate SOS)
     if (
       activeIncident.id !== 'NG-STANDBY' &&
-      activeIncident.status !== 'RESOLVED' &&
-      activeIncident.status !== 'RESOLVED — DEMO'
+      activeIncident.status !== 'RESOLVED'
     ) {
       onCancel();
       return;

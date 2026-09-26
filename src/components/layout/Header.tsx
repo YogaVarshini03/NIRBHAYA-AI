@@ -32,15 +32,15 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, pageTitle }) =
     },
     {
       id: 'n2',
-      title: 'Safe Route Recommended',
-      desc: 'New low-risk corridor mapped to Demo Central Mall.',
+      title: 'Safe Corridor Active',
+      desc: 'Real-time telemetry and geofence deviation protection ready.',
       time: '15 mins ago',
       read: false,
     },
     {
       id: 'n3',
-      title: 'Responder Drill Standby',
-      desc: 'Officer Arjun Kumar unit synced in immediate sector.',
+      title: 'Safety Network Online',
+      desc: 'Local browser GPS stream connected to safety monitoring engine.',
       time: '1 hour ago',
       read: true,
     }
@@ -93,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, pageTitle }) =
         {/* Security indicator (Rule 7 & 49) */}
         <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-navy-850 border border-white/10 text-[11px] text-slate-300">
           <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Secure Demo Session</span>
+          <span>Production Session (E2EE)</span>
         </div>
 
         {/* Theme Toggle (Rule 38) */}

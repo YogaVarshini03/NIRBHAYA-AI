@@ -17,7 +17,7 @@ import {
 import { routeService } from '../../services/routeService';
 import { routeDeviationService } from '../../services/routeDeviationService';
 import { RouteOption } from '../../types';
-import { SimulatedMap } from '../../components/map/SimulatedMap';
+import { RealMap } from '../../components/map/RealMap';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -30,7 +30,7 @@ export const SafeRoutePage: React.FC = () => {
   const { showToast } = useToast();
   const [gpsLoc, setGpsLoc] = useState(() => locationService.getCurrentLocation());
   const [currentLocation, setCurrentLocation] = useState('Acquiring Live GPS...');
-  const [destination, setDestination] = useState('T. Nagar Commercial Hub');
+  const [destination, setDestination] = useState('');
   const [destinationCoords, setDestinationCoords] = useState<{ lat: number; lng: number; name: string } | null>(null);
   const [destinationError, setDestinationError] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -154,7 +154,7 @@ export const SafeRoutePage: React.FC = () => {
                   type="text"
                   value={destination}
                   onChange={(e) => setDestination(e.target.value)}
-                  placeholder="e.g. Demo Central Mall"
+                  placeholder="e.g. Coimbatore Railway Station, Central Metro, General Hospital..."
                   className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-navy-950/80 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none"
                 />
               </div>
@@ -275,11 +275,17 @@ export const SafeRoutePage: React.FC = () => {
             <span className="text-xs text-slate-400">Showing {selectedRoute.name}</span>
           </div>
 
-          <SimulatedMap
-            selectedRoute={selectedRoute}
-            showResponder={true}
+          <RealMap
+            centerLat={gpsLoc?.latitude}
+            centerLng={gpsLoc?.longitude}
+            routeGeometry={selectedRoute?.path as any}
+            destination={destinationCoords || (selectedRoute?.path?.length ? {
+              lat: selectedRoute.path[selectedRoute.path.length - 1][0],
+              lng: selectedRoute.path[selectedRoute.path.length - 1][1],
+              name: selectedRoute.name
+            } : null)}
             showSafePoints={true}
-            height="h-[520px]"
+            className="h-[520px] w-full rounded-2xl"
           />
 
           <div className="p-4 rounded-xl bg-purple-950/40 border border-purple-500/30 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -304,7 +310,7 @@ export const SafeRoutePage: React.FC = () => {
           </div>
 
           <div className="p-4 rounded-xl bg-navy-900/60 border border-white/5 text-xs text-slate-400 flex items-center justify-between">
-            <span>Safe Point Nodes along this corridor: Police Haven (1.2 km), City Hospital (1.9 km)</span>
+            <span>Verified safe havens and medical centers mapped along corridor</span>
             <span className="text-emerald-400 font-semibold font-mono">Telematics Sync: OK</span>
           </div>
         </div>

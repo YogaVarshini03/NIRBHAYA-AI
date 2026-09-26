@@ -85,6 +85,20 @@ authRouter.post('/login', async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
+    // Record login in login_history table (Section 3)
+    try {
+      const loginId = `log_${uuidv4()}`;
+      const sessionId = `ses_${uuidv4().substring(0, 8).toUpperCase()}`;
+      const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'Modern Web Browser';
+      await db.execute(`
+        INSERT INTO login_history (id, user_id, user_name, login_time, ip_address, device_info, login_status, session_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [loginId, user.id, user.name, new Date().toISOString(), String(ip), String(userAgent), 'SUCCESS', sessionId]);
+    } catch (logErr) {
+      console.warn('[Auth API] Could not record login history:', logErr);
+    }
+
     return res.json({
       success: true,
       token,
@@ -105,7 +119,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
 // POST /api/auth/register
 authRouter.post('/register', async (req: Request, res: Response) => {
-  const { name, email, password, phone, emergencyContact } = req.body;
+  const { name, email, password, phone, role = 'USER', emergencyContact } = req.body;
 
   if (!name || !email || !password || !phone) {
     return res.status(400).json({ success: false, error: 'Please provide all required fields.' });
@@ -117,14 +131,16 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       return res.status(409).json({ success: false, error: 'An account with this email already exists.' });
     }
 
-    const userId = `usr_${uuidv4()}`;
+    // Backend-generated permanent unique User ID (Section 1: e.g. USR-7F42A91C)
+    const userId = `USR-${uuidv4().substring(0, 8).toUpperCase()}`;
     const passwordHash = bcrypt.hashSync(password, 10);
     const now = new Date().toISOString();
+    const assignedRole = ['USER', 'RESPONDER', 'ADMIN'].includes(role) ? role : 'USER';
 
     await db.execute(`
       INSERT INTO users (id, name, email, password_hash, phone, role, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [userId, name.trim(), email.trim().toLowerCase(), passwordHash, phone.trim(), 'USER', now]);
+    `, [userId, name.trim(), email.trim().toLowerCase(), passwordHash, phone.trim(), assignedRole, now]);
 
     // If emergency contact provided, insert as primary contact
     if (emergencyContact) {
@@ -145,8 +161,17 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       ]);
     }
 
+    // Record initial registration in login history
+    const loginId = `log_${uuidv4()}`;
+    const sessionId = `ses_${uuidv4().substring(0, 8).toUpperCase()}`;
+    const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    await db.execute(`
+      INSERT INTO login_history (id, user_id, user_name, login_time, ip_address, device_info, login_status, session_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [loginId, userId, name.trim(), now, String(ip), req.headers['user-agent'] || 'Browser', 'SUCCESS', sessionId]);
+
     const token = jwt.sign(
-      { id: userId, email: email.trim().toLowerCase(), name, role: 'USER' },
+      { id: userId, email: email.trim().toLowerCase(), name: name.trim(), role: assignedRole },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -156,10 +181,10 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       token,
       user: {
         id: userId,
-        name,
+        name: name.trim(),
         email: email.trim().toLowerCase(),
-        phone,
-        role: 'USER',
+        phone: phone.trim(),
+        role: assignedRole,
         createdAt: now,
       }
     });
@@ -169,7 +194,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/user/me
+// GET /api/auth/me
 authRouter.get('/me', authenticateToken, async (req: Request, res: Response) => {
   const authUser = (req as any).user;
   const user = await db.queryOne('SELECT id, name, email, phone, role, created_at FROM users WHERE id = ?', [authUser.id]) as any;
@@ -189,4 +214,72 @@ authRouter.get('/me', authenticateToken, async (req: Request, res: Response) => 
       createdAt: user.created_at,
     }
   });
+});
+
+// GET /api/auth/login-history (Section 3: Login history records)
+authRouter.get('/login-history', authenticateToken, async (req: Request, res: Response) => {
+  const authUser = (req as any).user;
+  try {
+    const history = await db.query(`
+      SELECT id, user_id, user_name, login_time, logout_time, ip_address, device_info, login_status, session_id
+      FROM login_history
+      WHERE user_id = ?
+      ORDER BY login_time DESC
+      LIMIT 25
+    `, [authUser.id]);
+
+    return res.json({
+      success: true,
+      userId: authUser.id,
+      count: history.length,
+      history,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/auth/profile (Section 26: User Profile editing)
+authRouter.put('/profile', authenticateToken, async (req: Request, res: Response) => {
+  const authUser = (req as any).user;
+  const { name, phone } = req.body;
+
+  if (!name && !phone) {
+    return res.status(400).json({ success: false, error: 'Name or phone is required to update.' });
+  }
+
+  try {
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    if (name) {
+      updates.push('name = ?');
+      params.push(name.trim());
+    }
+    if (phone) {
+      updates.push('phone = ?');
+      params.push(phone.trim());
+    }
+
+    params.push(authUser.id);
+
+    await db.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
+
+    const updated = await db.queryOne('SELECT id, name, email, phone, role, created_at FROM users WHERE id = ?', [authUser.id]) as any;
+
+    return res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: {
+        id: updated.id,
+        name: updated.name,
+        email: updated.email,
+        phone: updated.phone,
+        role: updated.role,
+        createdAt: updated.created_at,
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });

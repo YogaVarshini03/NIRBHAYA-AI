@@ -80,20 +80,27 @@ export const RegisterPage: React.FC = () => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      registerUser({
-        name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        emergencyContact: formData.emergencyContact,
-      });
+    registerUser({
+      name: formData.name,
+      email: formData.email,
+      password: formData.password,
+      phone: formData.phone,
+      emergencyContact: formData.emergencyContact,
+      role: 'USER',
+    }).then((res) => {
       setIsLoading(false);
-      setIsSuccess(true);
-
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 2000);
-    }, 700);
+      if (res.success) {
+        setIsSuccess(true);
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 1500);
+      } else {
+        setError(res.error || 'Failed to create safety account.');
+      }
+    }).catch((err) => {
+      setIsLoading(false);
+      setError(err?.message || 'Server connection error.');
+    });
   };
 
   if (isSuccess) {

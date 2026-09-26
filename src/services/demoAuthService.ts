@@ -8,6 +8,7 @@ export const DEFAULT_DEMO_USER: User = {
   phone: '+91 98765 43210',
   emergencyContact: '+91 98765 11223 (Mother)',
   avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+  role: 'USER',
   demoMode: true,
   createdAt: '2026-01-15T09:00:00Z',
 };
@@ -49,6 +50,7 @@ export const demoAuthService = {
       email: data.email.trim().toLowerCase(),
       phone: data.phone.trim(),
       emergencyContact: data.emergencyContact.trim(),
+      role: 'USER',
       demoMode: true,
       createdAt: new Date().toISOString(),
     };

@@ -1,14 +1,18 @@
 export type RiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
 
+export type UserRole = 'USER' | 'RESPONDER' | 'ADMIN';
+
 export interface User {
   id: string;
   name: string;
   email: string;
   phone: string;
-  emergencyContact: string;
+  role: UserRole;
+  emergencyContact?: string;
   avatarUrl?: string;
-  demoMode: boolean;
+  demoMode?: boolean;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Contact {
@@ -59,6 +63,7 @@ export interface RouteOption {
   pedestrianDensity: 'High' | 'Medium' | 'Low';
   safePointsNearby: number;
   geometry?: [number, number][];
+  path?: [number, number][];
 }
 
 export interface SafePoint {
@@ -103,7 +108,23 @@ export interface Responder {
   phone: string;
 }
 
-export type IncidentStatus = 'TRIGGERED' | 'LOCATION_ACQUIRED' | 'CONTACTS_NOTIFIED' | 'RESPONDER_ASSIGNED' | 'ACCEPTED' | 'ACCEPTED — DEMO' | 'IN_PROGRESS' | 'LIVE_TRACKING' | 'RESOLVED' | 'RESOLVED — DEMO';
+export type IncidentStatus = 
+  | 'CREATED'
+  | 'ACKNOWLEDGED'
+  | 'RESPONDER_ACCEPTED'
+  | 'EN_ROUTE'
+  | 'ON_SCENE'
+  | 'RESOLVED'
+  | 'CANCELLED'
+  | 'TRIGGERED'
+  | 'LOCATION_ACQUIRED'
+  | 'CONTACTS_NOTIFIED'
+  | 'RESPONDER_ASSIGNED'
+  | 'ACCEPTED'
+  | 'ACCEPTED — DEMO'
+  | 'IN_PROGRESS'
+  | 'LIVE_TRACKING'
+  | 'RESOLVED — DEMO';
 
 export interface EmergencyIncident {
   id: string;

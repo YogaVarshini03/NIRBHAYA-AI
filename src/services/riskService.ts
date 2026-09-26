@@ -97,14 +97,14 @@ export const riskService = {
       locationRisk = 30;
     }
 
-    // 5. Historical Incident Density (25% weight)
+    // 5. Historical Incident Density (25% weight) - Baseline statistical distribution
     const historicalDensity = 25;
-    const historicalDesc = 'Police Safety Records Baseline (Metropolitan Grid)';
+    const historicalDesc = 'Model-based (Safety Records Baseline Grid)';
 
-    // Compute data confidence
+    // Compute data confidence honestly based on available real sensors
     let confidence = 85;
-    if (!hasGpsData) confidence -= 25;
-    if (hour >= 23 || hour <= 4) confidence -= 10; // less crowd sensors active at night
+    if (!hasGpsData) confidence -= 35;
+    if (gps && gps.accuracy > 50) confidence -= 15;
 
     const factors: RiskFactors = {
       locationRisk,
@@ -116,12 +116,12 @@ export const riskService = {
 
     return {
       factors,
-      confidence,
+      confidence: Math.max(20, Math.min(100, confidence)),
       descriptions: {
-        location: locationDesc,
-        time: timeDesc,
-        crowd: crowdDesc,
-        lighting: lightingDesc,
+        location: hasGpsData ? `Real GPS Fix: ${locationDesc}` : 'Waiting for GPS Fix (Location data unavailable)',
+        time: `Real System Clock: ${timeDesc}`,
+        crowd: `Model-based: ${crowdDesc}`,
+        lighting: `Estimated: ${lightingDesc}`,
         historical: historicalDesc,
       },
     };

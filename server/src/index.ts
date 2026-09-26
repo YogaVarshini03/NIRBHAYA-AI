@@ -19,6 +19,7 @@ import { routesRouter } from './routes/routes';
 import { riskRouter } from './routes/risk';
 import { analyticsRouter } from './routes/analytics';
 import { notificationsRouter } from './routes/notifications';
+import { historyRouter } from './routes/history';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -97,6 +98,7 @@ app.use('/api/routes', routesRouter);
 app.use('/api/risk', riskRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api/history', historyRouter);
 
 // Health check endpoint (Rule 17, Phase 3)
 app.get('/api/health', async (req, res) => {
@@ -108,6 +110,12 @@ app.get('/api/health', async (req, res) => {
   } catch (err: any) {
     console.error('[HealthCheck] DB query error:', err.message);
   }
+
+  const voiceConfigured = Boolean(
+    (process.env.TWILIO_ACCOUNT_SID || process.env.SMS_PROVIDER_ACCOUNT_SID) &&
+    (process.env.TWILIO_AUTH_TOKEN || process.env.SMS_PROVIDER_AUTH_TOKEN) &&
+    (process.env.TWILIO_PHONE_NUMBER || process.env.SMS_FROM_NUMBER)
+  );
 
   const smsConfigured = Boolean(
     process.env.SMS_PROVIDER_ACCOUNT_SID &&
@@ -125,23 +133,25 @@ app.get('/api/health', async (req, res) => {
 
   res.json({
     status: 'ONLINE',
-    system: 'NIRBHAYA AI Proactive Safety Backend & Telemetry Server',
+    system: 'NIRBHAYA AI Real-time Production Safety Platform',
     appMode: process.env.APP_MODE || 'production',
     environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString(),
     services: {
       database: `CONNECTED (${db.getEngine()})`,
       websocket: 'READY',
-      routing: 'AVAILABLE',
+      routing: 'AVAILABLE (OSRM)',
+      voiceCall: voiceConfigured ? 'CONFIGURED' : 'NOT CONFIGURED',
       sms: smsConfigured ? 'CONFIGURED' : 'NOT CONFIGURED',
       email: emailConfigured ? 'CONFIGURED' : 'NOT CONFIGURED',
+      policeIntegration: 'Police API integration not configured (Application Responder Network Active)',
       evidenceStorage: 'READY',
     },
     databaseMetrics: {
       users: userCount ? userCount.count : 0,
       incidents: incidentCount ? incidentCount.count : 0,
     },
-    mapProvider: 'Leaflet (OpenStreetMap) / Google Maps Ready',
+    mapProvider: 'Leaflet (OpenStreetMap / Esri World Dark Gray)',
   });
 });
 

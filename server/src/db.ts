@@ -289,6 +289,33 @@ async function initMySQLTables() {
       ip_address VARCHAR(64),
       timestamp VARCHAR(64) NOT NULL,
       details TEXT
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS login_history (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      user_name VARCHAR(255) NOT NULL,
+      login_time VARCHAR(64) NOT NULL,
+      logout_time VARCHAR(64),
+      ip_address VARCHAR(64),
+      device_info TEXT,
+      login_status VARCHAR(32) NOT NULL,
+      session_id VARCHAR(64),
+      INDEX idx_login_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS risk_assessments (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      score INT NOT NULL,
+      level VARCHAR(32) NOT NULL,
+      factors TEXT NOT NULL,
+      latitude DOUBLE,
+      longitude DOUBLE,
+      accuracy DOUBLE,
+      confidence INT,
+      created_at VARCHAR(64) NOT NULL,
+      INDEX idx_risk_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
   ];
 
@@ -416,6 +443,33 @@ function initSQLiteTables() {
       timestamp TEXT NOT NULL,
       details TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS login_history (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      login_time TEXT NOT NULL,
+      logout_time TEXT,
+      ip_address TEXT,
+      device_info TEXT,
+      login_status TEXT NOT NULL,
+      session_id TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS risk_assessments (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      level TEXT NOT NULL,
+      factors TEXT NOT NULL,
+      latitude REAL,
+      longitude REAL,
+      accuracy REAL,
+      confidence INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
   console.log('[Database] All SQLite tables verified & initialized.');
 }
@@ -424,69 +478,71 @@ async function seedDefaultData() {
   const salt = bcrypt.genSaltSync(10);
   const now = new Date().toISOString();
 
-  // 1. Seed demo user
+  // 1. Seed primary user (ABHISHEK K / USR-7F42A91C)
   const existingUser = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
   if (!existingUser) {
     const passwordHash = bcrypt.hashSync('demo1234', salt);
     await db.execute(
       'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ['usr_ananya_01', 'Ananya Sharma', 'demo@nirbhaya.ai', passwordHash, '+91 98765 43210', 'USER', now]
+      ['USR-7F42A91C', 'Abhishek K', 'demo@nirbhaya.ai', passwordHash, '+91 93455 96322', 'USER', now]
     );
-    console.log('[Database] Seeded default user: Ananya Sharma (demo@nirbhaya.ai)');
+    console.log('[Database] Seeded default user: Abhishek K (USR-7F42A91C)');
+  } else if (existingUser.id !== 'USR-7F42A91C') {
+    // Migrate to permanent clean ID format safely with foreign keys disabled
+    if (sqliteDb) sqliteDb.pragma('foreign_keys = OFF');
+    await db.execute("UPDATE users SET id = 'USR-7F42A91C', name = 'Abhishek K', phone = '+91 93455 96322' WHERE email = 'demo@nirbhaya.ai'");
+    await db.execute("UPDATE trusted_contacts SET user_id = 'USR-7F42A91C' WHERE user_id = ?", [existingUser.id]);
+    await db.execute("UPDATE emergency_incidents SET user_id = 'USR-7F42A91C' WHERE user_id = ?", [existingUser.id]);
+    await db.execute("UPDATE location_updates SET user_id = 'USR-7F42A91C' WHERE user_id = ?", [existingUser.id]);
+    await db.execute("UPDATE tracking_sessions SET user_id = 'USR-7F42A91C' WHERE user_id = ?", [existingUser.id]);
+    if (sqliteDb) sqliteDb.pragma('foreign_keys = ON');
+    console.log('[Database] Migrated demo user ID to USR-7F42A91C');
   }
 
-  // 2. Seed responder user
+  // 2. Seed responder user (Officer Arjun Kumar / RSP-1042)
   const existingResponder = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['arjun@police.gov.in']);
   if (!existingResponder) {
     const respHash = bcrypt.hashSync('responder1234', salt);
     await db.execute(
       'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ['rsp_arjun_kumar_1042', 'Officer Arjun Kumar', 'arjun@police.gov.in', respHash, '+91 112 000 1042', 'RESPONDER', now]
+      ['RSP-1042', 'Officer Arjun Kumar (Application Responder)', 'arjun@police.gov.in', respHash, '+91 112 000 1042', 'RESPONDER', now]
     );
-    console.log('[Database] Seeded default responder: Officer Arjun Kumar');
+    console.log('[Database] Seeded default responder: Officer Arjun Kumar (RSP-1042)');
   }
 
-  // 3. Seed requested trusted test contacts
+  // 3. Seed admin user (ADM-9001)
+  const existingAdmin = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['admin@nirbhaya.ai']);
+  if (!existingAdmin) {
+    const adminHash = bcrypt.hashSync('admin1234', salt);
+    await db.execute(
+      'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['ADM-9001', 'Safety Operations Admin', 'admin@nirbhaya.ai', adminHash, '+91 98765 00001', 'ADMIN', now]
+    );
+    console.log('[Database] Seeded default admin: Safety Operations Admin (ADM-9001)');
+  }
+
+  // 4. Seed primary trusted test contact for demo user
   const user = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
-  const contactCheck = await db.queryOne<{ id: string }>('SELECT id FROM trusted_contacts WHERE phone = ?', ['9345596322']);
-
-  if (!contactCheck && user) {
-    // Primary requested test contact (Rule 8 & 9)
-    await db.execute(
-      `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        'cnt_test_primary_01',
-        user.id,
-        'Saranya R (Primary Test Guardian)',
-        '9345596322',
-        'saranyarajendran2612@gmail.com',
-        'Guardian',
-        1,
-        'All Channels',
-        now,
-        now
-      ]
-    );
-
-    // Family contact
-    await db.execute(
-      `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        'cnt_sunita_sharma',
-        user.id,
-        'Sunita Sharma',
-        '+91 98765 11223',
-        'sunita.sharma@family.com',
-        'Mother',
-        0,
-        'SMS & App',
-        now,
-        now
-      ]
-    );
-
-    console.log('[Database] Seeded requested test contacts (9345596322 / saranyarajendran2612@gmail.com)');
+  if (user) {
+    const contactCheck = await db.queryOne<{ id: string }>('SELECT id FROM trusted_contacts WHERE user_id = ? AND phone = ?', [user.id, '9345596322']);
+    if (!contactCheck) {
+      await db.execute(
+        `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'cnt_test_primary_01',
+          user.id,
+          'Saranya R (Primary Emergency Contact)',
+          '9345596322',
+          'saranyarajendran2612@gmail.com',
+          'Guardian',
+          1,
+          'All Channels',
+          now,
+          now
+        ]
+      );
+      console.log('[Database] Seeded primary emergency contact (9345596322 / saranyarajendran2612@gmail.com)');
+    }
   }
 }

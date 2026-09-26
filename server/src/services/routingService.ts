@@ -64,18 +64,13 @@ export async function calculateRealRoutes(
       }
     }
   } catch (err) {
-    console.warn('[Routing Service] OSRM offline or timed out, falling back to geodesic path vector interpolation.');
+    console.warn('[Routing Service] OSRM routing request failed or timed out:', err);
   }
 
-  // Fallback geometry if OSRM is unreachable
+  // If routing API fails, do NOT draw a fake route (Section 10)
   if (routeGeometry.length === 0) {
-    const steps = 12;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const lat = originLat + (destLat - originLat) * t + Math.sin(t * Math.PI) * 0.003;
-      const lng = originLng + (destLng - originLng) * t + Math.cos(t * Math.PI) * 0.003;
-      routeGeometry.push([lat, lng]);
-    }
+    console.warn('[Routing Service] Real route unavailable from OSRM.');
+    return [];
   }
 
   // Calculate current circadian time factor
