@@ -70,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, pageTitle }) =
         )}
       </div>
 
-      {/* Center: Global Demo Mode & Network Indicators (Rule 4 & 7) */}
+      {/* Center: Global Operational & Network Indicators */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Live Network & Backend Indicator */}
         <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs font-semibold shadow-glow-emerald">

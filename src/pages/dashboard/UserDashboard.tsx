@@ -133,13 +133,13 @@ export const UserDashboard: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className={`w-2.5 h-2.5 rounded-full ${gpsStatus === 'LIVE_GPS' ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
             <span className="font-bold text-white">Risk Monitoring:</span>
-            <span className="text-emerald-400 font-semibold font-mono">ACTIVE (80+ Threshold)</span>
+            <span className="text-emerald-400 font-semibold font-mono">ACTIVE (81-100 Critical)</span>
           </div>
 
           <div className="flex items-center gap-1.5 border-l border-white/10 pl-4">
             <span className="text-slate-400">Current Risk:</span>
             <span className={`font-mono font-bold ${
-              riskAssessment.score >= 80 ? 'text-red-400' : riskAssessment.score > 30 ? 'text-amber-400' : 'text-emerald-400'
+              riskAssessment.score >= 81 ? 'text-red-400' : riskAssessment.score > 30 ? 'text-amber-400' : 'text-emerald-400'
             }`}>
               {riskAssessment.score} / 100 ({riskAssessment.level})
             </span>
@@ -148,7 +148,7 @@ export const UserDashboard: React.FC = () => {
           <div className="flex items-center gap-1.5 border-l border-white/10 pl-4 hidden sm:flex">
             <span className="text-slate-400">Auto-SOS:</span>
             <span className="font-mono font-semibold text-purple-300">
-              {settings.autoEmergencyProtection ?? true ? 'ON (80+ Risk)' : 'OFF'}
+              {settings.autoEmergencyProtection ?? true ? 'ON (81+ Risk)' : 'OFF'}
             </span>
           </div>
 
@@ -163,9 +163,9 @@ export const UserDashboard: React.FC = () => {
           <button
             onClick={triggerCriticalTest}
             className="px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 text-[11px] font-semibold transition-all"
-            title="Simulate Critical Risk Warning (>=80) with 10s countdown"
+            title="Simulate Critical Risk Warning (>=81) with 10s countdown"
           >
-            🧪 Test 80+ Risk
+            🧪 Test 81+ Risk
           </button>
           <button
             onClick={triggerDeviationTest}

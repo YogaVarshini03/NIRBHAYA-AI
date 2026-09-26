@@ -93,9 +93,10 @@ class RiskMonitoringService {
 
     this.notifyListeners(0);
 
-    // Check if score is CRITICAL (80-100) (Section 12: 80+ threshold)
+    // Check if score is CRITICAL (81-100) (Threshold >= 81 or CRITICAL level)
     const hasValidGps = Boolean(loc && loc.latitude && loc.longitude);
-    if (assessment.score >= 80 && !this.hasTriggeredCriticalAlert && hasValidGps) {
+    const isCritical = assessment.score >= 81 || assessment.level === 'CRITICAL';
+    if (isCritical && !this.hasTriggeredCriticalAlert && hasValidGps) {
       // Check user setting
       const settings = storageService.getItem<AppSettings>(StorageKeys.APP_SETTINGS, {
         autoEmergencyProtection: true,
