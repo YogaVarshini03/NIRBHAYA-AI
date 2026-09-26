@@ -124,7 +124,7 @@ IMPORTANT: Keep this key secure. You need it along with your password to log in.
     }).then((res) => {
       setIsLoading(false);
       if (res.success) {
-        setGeneratedKey(res.accessKey || 'NIR-7F42-SAFE-2026');
+        setGeneratedKey(res.accessKey || '');
         setIsSuccess(true);
       } else {
         setError(res.error || 'Failed to create safety account.');
@@ -144,9 +144,9 @@ IMPORTANT: Keep this key secure. You need it along with your password to log in.
           </div>
 
           <div className="space-y-1">
-            <h2 className="text-2xl font-black text-white">Account Created!</h2>
+            <h2 className="text-2xl font-black text-white">SECURE EVIDENCE ACCESS SETUP</h2>
             <p className="text-xs text-slate-300">
-              Welcome to NIRBHAYA AI. Below is your unique permanent Access Key.
+              Create your one-time NIRBHAYA Access Key. This key is required to access the Secure Evidence Locker.
             </p>
           </div>
 
@@ -157,13 +157,13 @@ IMPORTANT: Keep this key secure. You need it along with your password to log in.
                 <KeyRound className="w-3.5 h-3.5" />
                 NIRBHAYA Access Key
               </span>
-              <span className="text-[10px] text-amber-400 font-bold">SAVE ONCE</span>
+              <span className="text-[10px] text-amber-400 font-bold">SHOWN ONCE</span>
             </div>
             <div className="p-3 rounded-xl bg-black/60 border border-white/10 font-mono text-center text-lg sm:text-xl font-black tracking-widest text-cyan-300 select-all">
               {generatedKey}
             </div>
-            <p className="text-[10px] text-slate-400 leading-tight">
-              ⚠️ You must present this key along with your password when logging in. This key is displayed once in full.
+            <p className="text-[10px] text-amber-300 leading-tight">
+              ⚠️ Save this key securely. For your security, the full key will not be shown again. It will be required when unlocking your Evidence Vault.
             </p>
           </div>
 

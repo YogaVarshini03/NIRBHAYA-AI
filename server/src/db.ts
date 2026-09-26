@@ -269,6 +269,7 @@ async function initMySQLTables() {
       id VARCHAR(64) PRIMARY KEY,
       incident_id VARCHAR(64) NOT NULL,
       user_id VARCHAR(64) NOT NULL,
+      user_name VARCHAR(255),
       type VARCHAR(32) NOT NULL,
       title VARCHAR(255) NOT NULL,
       file_name VARCHAR(255) NOT NULL,
@@ -277,8 +278,34 @@ async function initMySQLTables() {
       mime_type VARCHAR(64) NOT NULL,
       sha256_hash VARCHAR(128) NOT NULL,
       duration_sec INT,
+      latitude DOUBLE,
+      longitude DOUBLE,
+      gps_accuracy DOUBLE,
+      captured_at VARCHAR(64),
       is_locked INT DEFAULT 1,
-      created_at VARCHAR(64) NOT NULL
+      created_at VARCHAR(64) NOT NULL,
+      INDEX idx_ev_user (user_id),
+      INDEX idx_ev_inc (incident_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS evidence_sessions (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      session_token TEXT NOT NULL,
+      created_at VARCHAR(64) NOT NULL,
+      expires_at VARCHAR(64) NOT NULL,
+      revoked_at VARCHAR(64),
+      INDEX idx_evses_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS evidence_audit (
+      id VARCHAR(64) PRIMARY KEY,
+      evidence_id VARCHAR(64) NOT NULL,
+      user_id VARCHAR(64) NOT NULL,
+      action VARCHAR(64) NOT NULL,
+      timestamp VARCHAR(64) NOT NULL,
+      metadata TEXT,
+      INDEX idx_evaud_ev (evidence_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
 
     `CREATE TABLE IF NOT EXISTS notifications (
@@ -433,6 +460,7 @@ function initSQLiteTables() {
       id TEXT PRIMARY KEY,
       incident_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
+      user_name TEXT,
       type TEXT NOT NULL,
       title TEXT NOT NULL,
       file_name TEXT NOT NULL,
@@ -441,8 +469,30 @@ function initSQLiteTables() {
       mime_type TEXT NOT NULL,
       sha256_hash TEXT NOT NULL,
       duration_sec INTEGER,
+      latitude REAL,
+      longitude REAL,
+      gps_accuracy REAL,
+      captured_at TEXT,
       is_locked INTEGER DEFAULT 1,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS evidence_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      session_token TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS evidence_audit (
+      id TEXT PRIMARY KEY,
+      evidence_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      metadata TEXT
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
@@ -493,6 +543,16 @@ function initSQLiteTables() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  // Safe migrations for SQLite
+  try { sqliteDb.exec("ALTER TABLE evidence_records ADD COLUMN user_name TEXT;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE evidence_records ADD COLUMN latitude REAL;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE evidence_records ADD COLUMN longitude REAL;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE evidence_records ADD COLUMN gps_accuracy REAL;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE evidence_records ADD COLUMN captured_at TEXT;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE access_keys ADD COLUMN failed_attempts INTEGER DEFAULT 0;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE access_keys ADD COLUMN locked_until TEXT;"); } catch {}
+
   console.log('[Database] All SQLite tables verified & initialized.');
 }
 

@@ -38,15 +38,19 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
   const [countdown, setCountdown] = useState<number>(10);
   const [isGpsLost, setIsGpsLost] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(audioService.isMuted());
+  const [isAudioBlocked, setIsAudioBlocked] = useState<boolean>(false);
 
   // Start emergency warning audio & reset countdown whenever modal opens
   useEffect(() => {
     if (isOpen) {
       setCountdown(10);
       setIsGpsLost(!locationService.getCurrentLocation());
-      audioService.startCriticalRiskWarning(isMuted);
+      audioService.startCriticalRiskWarning(isMuted).then((res) => {
+        setIsAudioBlocked(res.audioBlocked);
+      });
     } else {
       audioService.stopCriticalRiskWarning();
+      setIsAudioBlocked(false);
     }
 
     return () => {
@@ -54,12 +58,21 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
     };
   }, [isOpen]);
 
+  const handleEnableAudio = async () => {
+    await audioService.ensureAudioReady();
+    const res = await audioService.startCriticalRiskWarning(false);
+    setIsAudioBlocked(res.audioBlocked);
+    setIsMuted(false);
+  };
+
   const toggleMute = () => {
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
     audioService.setMuted(nextMuted);
     if (!nextMuted && isOpen) {
-      audioService.startCriticalRiskWarning(false);
+      audioService.startCriticalRiskWarning(false).then((res) => {
+        setIsAudioBlocked(res.audioBlocked);
+      });
     }
   };
 
@@ -140,23 +153,33 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
             </span>
           </div>
 
-          <button
-            onClick={toggleMute}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-300 transition-colors"
-            title={isMuted ? 'Unmute Emergency Siren' : 'Mute Emergency Siren'}
-          >
-            {isMuted ? (
-              <>
-                <VolumeX className="w-3.5 h-3.5 text-amber-400" />
-                <span>MUTED</span>
-              </>
-            ) : (
-              <>
-                <Volume2 className="w-3.5 h-3.5 text-red-400 animate-pulse" />
-                <span className="text-red-400">SIREN ON</span>
-              </>
+          <div className="flex items-center gap-2">
+            {isAudioBlocked && (
+              <button
+                onClick={handleEnableAudio}
+                className="px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 text-[11px] font-bold animate-pulse hover:bg-amber-500/30 transition-all"
+              >
+                AUDIO BLOCKED — TAP TO ENABLE WARNING
+              </button>
             )}
-          </button>
+            <button
+              onClick={toggleMute}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-300 transition-colors"
+              title={isMuted ? 'Unmute Emergency Siren' : 'Mute Emergency Siren'}
+            >
+              {isMuted ? (
+                <>
+                  <VolumeX className="w-3.5 h-3.5 text-amber-400" />
+                  <span>MUTED</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+                  <span className="text-red-400">SIREN ON</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Top Header & Visual Badge */}

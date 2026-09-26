@@ -88,6 +88,14 @@ export interface EvidenceItem {
   size: string;
   isLocked: boolean;
   sha256Hash: string;
+  userId?: string;
+  userName?: string;
+  incidentId?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  gpsAccuracy?: number | null;
+  capturedAt?: string;
+  fileUrl?: string;
   chainOfCustody: {
     stage: string;
     timestamp: string;

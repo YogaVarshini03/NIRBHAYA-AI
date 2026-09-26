@@ -86,28 +86,7 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
-  const handleRegenerateKey = async () => {
-    const token = localStorage.getItem('nirbhaya_auth_token');
-    try {
-      const res = await fetch(apiUrl('/api/auth/access-key/regenerate'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await res.json();
-      if (data.success && data.accessKey) {
-        setRawNewKey(data.accessKey);
-        setAccessKeyData({ maskedKey: data.maskedKey, status: 'ACTIVE' });
-        showToast('New NIRBHAYA Access Key generated. Save it securely.', 'success');
-      } else {
-        showToast(data.error || 'Could not regenerate key.', 'error');
-      }
-    } catch (e: any) {
-      showToast(e.message || 'Error regenerating key', 'error');
-    }
-  };
+
 
   const handleRevokeKey = async () => {
     const token = localStorage.getItem('nirbhaya_auth_token');
@@ -226,7 +205,7 @@ export const SettingsPage: React.FC = () => {
           </div>
 
           <p className="text-xs text-slate-400">
-            Unique application key required alongside your password to enter NIRBHAYA AI.
+            One-time security credential required to unlock your Secure Evidence Locker.
           </p>
 
           <div className="p-3.5 rounded-xl bg-navy-950/80 border border-white/10 space-y-2">
@@ -235,33 +214,22 @@ export const SettingsPage: React.FC = () => {
               <span className="text-[10px] text-emerald-400 font-semibold">Active & Armed</span>
             </div>
             <div className="text-base font-mono font-bold tracking-widest text-cyan-300">
-              {rawNewKey ? rawNewKey : accessKeyData?.maskedKey || 'NIR-7F42-****-****'}
+              {accessKeyData?.maskedKey || 'NIR-****-****-****'}
             </div>
-            {rawNewKey && (
-              <p className="text-[11px] text-amber-300 font-medium">
-                ⚠️ New key generated! Please copy it now before leaving this page.
-              </p>
-            )}
+            <p className="text-[10px] text-slate-400">
+              Configured during account setup. For maximum vault security, full plaintext is never retained.
+            </p>
           </div>
 
           <div className="flex items-center gap-2 pt-1">
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => handleCopyKey(rawNewKey || accessKeyData?.maskedKey || 'NIR-7F42-SAFE-2026')}
+              onClick={() => handleCopyKey(accessKeyData?.maskedKey || '')}
               leftIcon={copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               className="text-xs flex-1"
             >
-              {copiedKey ? 'Copied!' : 'Copy Key'}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleRegenerateKey}
-              leftIcon={<RotateCcw className="w-3.5 h-3.5 text-purple-400" />}
-              className="text-xs flex-1"
-            >
-              Regenerate
+              {copiedKey ? 'Copied!' : 'Copy Key ID'}
             </Button>
             <Button
               variant="danger"

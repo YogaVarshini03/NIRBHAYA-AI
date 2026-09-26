@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, UserRole } from '../types';
 import { apiUrl } from '../services/apiConfig';
+import { evidenceService } from '../services/evidenceService';
 import { useToast } from './ToastContext';
 
 interface AuthContextType {
@@ -8,7 +9,7 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   loginAsDemoUser: () => Promise<void>;
-  loginWithCredentials: (email: string, pass: string, accessKey?: string) => Promise<{ success: boolean; user?: User; error?: string }>;
+  loginWithCredentials: (email: string, pass: string) => Promise<{ success: boolean; user?: User; error?: string }>;
   registerUser: (data: { name: string; email: string; password?: string; phone: string; role?: UserRole; emergencyContact?: string }) => Promise<{ success: boolean; user?: User; accessKey?: string; error?: string }>;
   updateProfile: (data: { name?: string; phone?: string }) => Promise<{ success: boolean; user?: User; error?: string }>;
   logout: () => void;
@@ -89,8 +90,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const loginWithCredentials = async (
     email: string,
-    pass: string,
-    accessKey?: string
+    pass: string
   ): Promise<{ success: boolean; user?: User; error?: string }> => {
     try {
       const res = await fetch(apiUrl('/api/auth/login'), {
@@ -99,7 +99,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password: pass,
-          accessKey: accessKey?.trim(),
         }),
       });
 
@@ -168,8 +167,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const loginAsDemoUser = async (): Promise<void> => {
-    // Authenticate demo user against real backend with standard access key
-    const res = await loginWithCredentials('demo@nirbhaya.ai', 'demo1234', 'NIR-7F42-SAFE-2026');
+    // Authenticate demo user against real backend with standard email and password
+    const res = await loginWithCredentials('demo@nirbhaya.ai', 'demo1234');
     if (!res.success) {
       // Fallback local session if offline
       const demoUser: User = {
@@ -218,6 +217,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = (): void => {
     setToken(null);
     setUser(null);
+    evidenceService.lockVault();
     if (typeof window !== 'undefined') {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
