@@ -10,7 +10,11 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  KeyRound,
+  Copy,
+  Download,
+  Check
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/common/Button';
@@ -32,6 +36,8 @@ export const RegisterPage: React.FC = () => {
 
   const [error, setError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
+  const [generatedKey, setGeneratedKey] = useState('');
+  const [hasCopiedKey, setHasCopiedKey] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   // Compute password strength
@@ -43,6 +49,34 @@ export const RegisterPage: React.FC = () => {
   };
 
   const strength = getPasswordStrength(formData.password);
+
+  const handleCopyKey = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(generatedKey);
+      setHasCopiedKey(true);
+      setTimeout(() => setHasCopiedKey(false), 3000);
+    }
+  };
+
+  const handleDownloadKey = () => {
+    const textContent = `NIRBHAYA AI — EMERGENCY SAFETY NETWORK
+USER ACCESS KEY FILE
+========================================
+User Name: ${formData.name}
+Email: ${formData.email}
+NIRBHAYA Access Key: ${generatedKey}
+Created: ${new Date().toISOString()}
+
+IMPORTANT: Keep this key secure. You need it along with your password to log in.
+`;
+    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `nirbhaya-access-key-${formData.name.replace(/\s+/g, '_')}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,10 +124,8 @@ export const RegisterPage: React.FC = () => {
     }).then((res) => {
       setIsLoading(false);
       if (res.success) {
+        setGeneratedKey(res.accessKey || 'NIR-7F42-SAFE-2026');
         setIsSuccess(true);
-        setTimeout(() => {
-          navigate('/dashboard');
-        }, 1500);
       } else {
         setError(res.error || 'Failed to create safety account.');
       }
@@ -106,15 +138,70 @@ export const RegisterPage: React.FC = () => {
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-[#070A11] flex items-center justify-center p-4">
-        <div className="max-w-md w-full p-8 rounded-3xl bg-navy-900 border border-emerald-500/30 text-center space-y-4 shadow-glow-emerald">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 mx-auto">
+        <div className="max-w-md w-full p-8 rounded-3xl bg-navy-900 border border-emerald-500/40 text-center space-y-6 shadow-2xl backdrop-blur-2xl">
+          <div className="w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 mx-auto shadow-glow-emerald">
             <CheckCircle2 className="w-8 h-8" />
           </div>
-          <h2 className="text-2xl font-bold text-white">Profile Created!</h2>
-          <p className="text-sm text-slate-300">
-            Your safety profile has been created successfully. Initializing real-time environmental telemetry...
-          </p>
-          <div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin mx-auto mt-4" />
+
+          <div className="space-y-1">
+            <h2 className="text-2xl font-black text-white">Account Created!</h2>
+            <p className="text-xs text-slate-300">
+              Welcome to NIRBHAYA AI. Below is your unique permanent Access Key.
+            </p>
+          </div>
+
+          {/* Unique Access Key Display Box */}
+          <div className="p-4 rounded-2xl bg-navy-950/90 border border-cyan-500/40 text-left space-y-2">
+            <div className="flex items-center justify-between text-[11px] text-cyan-300 font-semibold uppercase tracking-wider">
+              <span className="flex items-center gap-1.5">
+                <KeyRound className="w-3.5 h-3.5" />
+                NIRBHAYA Access Key
+              </span>
+              <span className="text-[10px] text-amber-400 font-bold">SAVE ONCE</span>
+            </div>
+            <div className="p-3 rounded-xl bg-black/60 border border-white/10 font-mono text-center text-lg sm:text-xl font-black tracking-widest text-cyan-300 select-all">
+              {generatedKey}
+            </div>
+            <p className="text-[10px] text-slate-400 leading-tight">
+              ⚠️ You must present this key along with your password when logging in. This key is displayed once in full.
+            </p>
+          </div>
+
+          {/* Action buttons */}
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleCopyKey}
+              leftIcon={hasCopiedKey ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              className="w-full text-xs font-semibold"
+            >
+              {hasCopiedKey ? 'Copied!' : 'Copy Key'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleDownloadKey}
+              leftIcon={<Download className="w-4 h-4 text-cyan-400" />}
+              className="w-full text-xs font-semibold"
+            >
+              Download (.txt)
+            </Button>
+          </div>
+
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={() => navigate('/dashboard')}
+            rightIcon={<ArrowRight className="w-4 h-4" />}
+            className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold shadow-glow-violet"
+          >
+            Enter Safety Dashboard
+          </Button>
+
+          <Link to="/login" className="block text-xs text-purple-400 hover:text-purple-300 font-medium">
+            Or Return to Sign In Screen
+          </Link>
         </div>
       </div>
     );

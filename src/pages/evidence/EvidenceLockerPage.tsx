@@ -270,28 +270,37 @@ export const EvidenceLockerPage: React.FC = () => {
 
       {/* Evidence Cards Grid (Rule 26 & 27) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {evidenceList.map((item) => {
-          let TypeIcon = Volume2;
-          let iconColor = 'text-purple-400 bg-purple-500/10 border-purple-500/20';
-          if (item.type === 'video') {
-            TypeIcon = Video;
-            iconColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20';
-          } else if (item.type === 'snapshot') {
-            TypeIcon = Camera;
-            iconColor = 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20';
-          }
+        {evidenceList.length === 0 ? (
+          <div className="col-span-full p-12 text-center rounded-2xl bg-navy-950/40 border border-white/5 space-y-3">
+            <FileLock2 className="w-10 h-10 text-slate-500 mx-auto" />
+            <h4 className="text-base font-bold text-white">Forensic Evidence Vault is Empty</h4>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              No audio recordings or camera snapshots have been uploaded yet. Use the "Record Audio" or "Capture Snapshot" buttons above to create tamper-evident SHA-256 evidence.
+            </p>
+          </div>
+        ) : (
+          evidenceList.map((item) => {
+            let TypeIcon = Volume2;
+            let iconColor = 'text-purple-400 bg-purple-500/10 border-purple-500/20';
+            if (item.type === 'video') {
+              TypeIcon = Video;
+              iconColor = 'text-blue-400 bg-blue-500/10 border-blue-500/20';
+            } else if (item.type === 'snapshot') {
+              TypeIcon = Camera;
+              iconColor = 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20';
+            }
 
-          return (
-            <Card key={item.id} variant="glass" className="p-6 flex flex-col justify-between space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className={`p-2.5 rounded-xl border ${iconColor}`}>
-                    <TypeIcon className="w-5 h-5" />
+            return (
+              <Card key={item.id} variant="glass" className="p-6 flex flex-col justify-between space-y-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className={`p-2.5 rounded-xl border ${iconColor}`}>
+                      <TypeIcon className="w-5 h-5" />
+                    </div>
+                    <Badge variant={item.isLocked ? 'critical' : 'moderate'} size="sm">
+                      {item.isLocked ? 'LOCKED' : 'UNLOCKED'}
+                    </Badge>
                   </div>
-                  <Badge variant={item.isLocked ? 'critical' : 'moderate'} size="sm">
-                    {item.isLocked ? 'LOCKED — DEMO' : 'UNLOCKED'}
-                  </Badge>
-                </div>
 
                 <div>
                   <h4 className="text-base font-bold text-white truncate" title={item.title}>
@@ -379,7 +388,7 @@ export const EvidenceLockerPage: React.FC = () => {
               </div>
             </Card>
           );
-        })}
+        }))}
       </div>
 
       {/* Metadata Modal */}

@@ -81,7 +81,7 @@ export const RiskAnalysisPage: React.FC = () => {
     } else {
       setFactors(DEFAULT_RISK_FACTORS);
       riskService.saveFactors(DEFAULT_RISK_FACTORS);
-      showToast('Telemetry reset to baseline factors (Score: 23).', 'info');
+      showToast('Telemetry factors recalibrated to standard baseline defaults.', 'info');
     }
   };
 
@@ -427,7 +427,7 @@ export const RiskAnalysisPage: React.FC = () => {
             <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
               <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
               <div>
-                <strong>Important Safety Disclaimer:</strong> Risk score is an experimental safety indicator computed from simulated telemetry and should not be treated as a guarantee of safety. Always trust your instincts and maintain situational awareness.
+                <strong>Important Safety Disclaimer:</strong> Risk score is an algorithmic safety indicator computed from browser GPS telemetry, solar illumination calculations, and historical incident distribution models. It should not be treated as a guarantee of safety. Always trust your instincts and maintain situational awareness.
               </div>
             </div>
           </div>

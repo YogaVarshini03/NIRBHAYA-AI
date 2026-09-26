@@ -3,28 +3,10 @@ import { calculateRealRoutes } from '../services/routingService';
 
 export const routesRouter = Router();
 
-// Known reference locations for common test queries
-const KNOWN_DESTINATIONS: Record<string, { lat: number; lng: number; name: string }> = {
-  't nagar': { lat: 13.0418, lng: 80.2341, name: 'T. Nagar Commercial Hub' },
-  't. nagar': { lat: 13.0418, lng: 80.2341, name: 'T. Nagar Commercial Hub' },
-  'central station': { lat: 13.0827, lng: 80.2757, name: 'Puratchi Thalaivar Dr. M.G.R. Central Station' },
-  'airport': { lat: 12.9941, lng: 80.1709, name: 'Chennai International Airport (MAA)' },
-  'guindy': { lat: 13.0067, lng: 80.2025, name: 'Guindy Tech Park & Metro' },
-  'velachery': { lat: 12.9759, lng: 80.2212, name: 'Velachery Phoenix Corridor' },
-  'marina beach': { lat: 13.0500, lng: 80.2824, name: 'Marina Beach Promenade' },
-  'anna nagar': { lat: 13.0850, lng: 80.2100, name: 'Anna Nagar Tower Park' },
-};
-
-// Geocode query helper using Nominatim or known list
+// Geocode query helper using OpenStreetMap Nominatim
 async function resolveDestinationCoordinates(query: string, originLat: number, originLng: number): Promise<{ lat: number; lng: number; name: string } | null> {
-  const normalized = query.toLowerCase().trim();
+  const normalized = query.trim();
   if (!normalized) return null;
-  
-  for (const [key, val] of Object.entries(KNOWN_DESTINATIONS)) {
-    if (normalized.includes(key)) {
-      return val;
-    }
-  }
 
   // Check if query is "lat,lng" format
   const coordParts = query.split(',').map((s) => parseFloat(s.trim()));

@@ -2,48 +2,11 @@ import { EvidenceItem } from '../types';
 import { storageService, StorageKeys } from './storageService';
 import { apiUrl } from './apiConfig';
 
-export const DEFAULT_EVIDENCE: EvidenceItem[] = [
-  {
-    id: 'ev_audio_01',
-    type: 'audio',
-    title: 'Emergency Drill Audio Clip',
-    timestamp: '2026-09-24 17:42:10 UTC',
-    location: 'Encrypted Vault Storage (Sample Drill)',
-    duration: '00:18',
-    fileType: 'WAV (16-bit PCM / 48kHz)',
-    size: '1.4 MB',
-    isLocked: true,
-    sha256Hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    chainOfCustody: [
-      { stage: 'Evidence Captured via Mic Sensor', timestamp: '17:42:10 UTC', verified: true },
-      { stage: 'GPS Telemetry & Timestamps Bound', timestamp: '17:42:11 UTC', verified: true },
-      { stage: 'Integrity Hash Computed (SHA-256)', timestamp: '17:42:12 UTC', verified: true },
-      { stage: 'Demo encryption visualization in Vault', timestamp: '17:42:15 UTC', verified: true },
-    ]
-  },
-  {
-    id: 'ev_snap_03',
-    type: 'snapshot',
-    title: 'Emergency Location Multi-Angle Snapshot',
-    timestamp: '2026-09-24 17:42:35 UTC',
-    location: 'Encrypted Vault Storage (Sample Drill)',
-    duration: 'N/A (Still Image)',
-    fileType: 'JPEG (Demo encryption visualization)',
-    size: '2.1 MB',
-    isLocked: true,
-    sha256Hash: '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a',
-    chainOfCustody: [
-      { stage: 'Camera Rapid Burst Triggered', timestamp: '17:42:35 UTC', verified: true },
-      { stage: 'EXIF & Geo-Tag Signed', timestamp: '17:42:36 UTC', verified: true },
-      { stage: 'Integrity Hash Recorded', timestamp: '17:42:38 UTC', verified: true },
-      { stage: 'Linked to Emergency Incident', timestamp: '17:42:40 UTC', verified: true },
-    ]
-  }
-];
+export const DEFAULT_EVIDENCE: EvidenceItem[] = [];
 
 export const evidenceService = {
   getEvidence(): EvidenceItem[] {
-    return storageService.getItem<EvidenceItem[]>(StorageKeys.EVIDENCE_LIST, DEFAULT_EVIDENCE);
+    return storageService.getItem<EvidenceItem[]>(StorageKeys.EVIDENCE_LIST, []);
   },
 
   saveEvidence(items: EvidenceItem[]): void {
@@ -55,7 +18,7 @@ export const evidenceService = {
       const res = await fetch(apiUrl('/api/evidence'));
       if (res.ok) {
         const data = await res.json();
-        if (data.evidence && data.evidence.length > 0) {
+        if (data.evidence && Array.isArray(data.evidence)) {
           const mapped: EvidenceItem[] = data.evidence.map((item: any) => ({
             id: item.id,
             type: item.type === 'photo' ? 'snapshot' : item.type,
@@ -86,6 +49,15 @@ export const evidenceService = {
 
   async uploadRealEvidence(file: Blob, type: 'photo' | 'audio' | 'video', title: string, incidentId: string = 'active_session'): Promise<EvidenceItem | null> {
     try {
+      let currentUserId = 'USR-7F42A91C';
+      try {
+        const stored = localStorage.getItem('nirbhaya_user_session');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed?.id) currentUserId = parsed.id;
+        }
+      } catch {}
+
       const formData = new FormData();
       const ext = type === 'photo' ? '.jpg' : type === 'audio' ? '.webm' : '.mp4';
       const fileName = `evidence_${Date.now()}${ext}`;
@@ -93,6 +65,7 @@ export const evidenceService = {
       formData.append('type', type);
       formData.append('title', title);
       formData.append('incidentId', incidentId);
+      formData.append('userId', currentUserId);
 
       const res = await fetch(apiUrl('/api/evidence/upload'), {
         method: 'POST',

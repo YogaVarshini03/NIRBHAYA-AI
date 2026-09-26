@@ -30,6 +30,13 @@ export const DEFAULT_CONTACTS: Contact[] = [
   },
 ];
 
+function getStoredToken(): string | null {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('nirbhaya_auth_token') || localStorage.getItem('nirbhaya_token');
+  }
+  return null;
+}
+
 export const contactService = {
   getContacts(): Contact[] {
     return storageService.getItem<Contact[]>(StorageKeys.CONTACTS, DEFAULT_CONTACTS);
@@ -37,13 +44,14 @@ export const contactService = {
 
   async fetchContactsFromBackend(token?: string): Promise<Contact[]> {
     try {
+      const activeToken = token || getStoredToken();
       const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
       const res = await fetch(apiUrl('/api/contacts'), { headers });
       if (res.ok) {
         const data = await res.json();
-        if (data.contacts && data.contacts.length > 0) {
+        if (data.contacts && Array.isArray(data.contacts)) {
           const mapped: Contact[] = data.contacts.map((c: any) => ({
             id: c.id,
             name: c.name,
@@ -74,8 +82,9 @@ export const contactService = {
     }
 
     try {
+      const activeToken = token || getStoredToken();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
       const res = await fetch(apiUrl('/api/contacts'), {
         method: 'POST',
@@ -101,9 +110,12 @@ export const contactService = {
         const updated = [newContact, ...list];
         this.saveContacts(updated);
         return { success: true, contact: newContact };
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        return { success: false, error: errJson.error || 'Backend failed to save contact.' };
       }
-    } catch (err) {
-      console.warn('[contactService] Adding locally as fallback');
+    } catch (err: any) {
+      console.warn('[contactService] Adding locally as fallback:', err);
     }
 
     // Fallback local creation
@@ -124,8 +136,9 @@ export const contactService = {
     this.saveContacts(list);
 
     try {
+      const activeToken = token || getStoredToken();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
       await fetch(apiUrl(`/api/contacts/${id}`), {
         method: 'PUT',
@@ -145,8 +158,9 @@ export const contactService = {
     this.saveContacts(filtered);
 
     try {
+      const activeToken = token || getStoredToken();
       const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
       await fetch(apiUrl(`/api/contacts/${id}`), {
         method: 'DELETE',
@@ -161,8 +175,9 @@ export const contactService = {
 
   async sendTestAlert(contactId: string, token?: string): Promise<{ success: boolean; smsStatus: string; emailStatus: string; message: string }> {
     try {
+      const activeToken = token || getStoredToken();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
       const res = await fetch(apiUrl(`/api/contacts/${contactId}/test-alert`), {
         method: 'POST',

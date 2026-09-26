@@ -31,16 +31,17 @@ import { locationService, GPSLocation, LocationStatus } from '../../services/loc
 
 import { useEmergency } from '../../context/EmergencyContext';
 import { riskMonitoringService } from '../../services/riskMonitoringService';
+import { routeDeviationService } from '../../services/routeDeviationService';
 import { storageService, StorageKeys } from '../../services/storageService';
-import { AppSettings, RiskAssessment } from '../../types';
+import { AppSettings, RiskAssessment, RouteDeviationState } from '../../types';
 
 export const UserDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { triggerCriticalTest, triggerDeviationTest } = useEmergency();
+  const { activeIncident, triggerCriticalTest, triggerDeviationTest } = useEmergency();
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessment>(() => riskMonitoringService.getStatus().lastAssessment);
+  const [deviationState, setDeviationState] = useState<RouteDeviationState>(() => routeDeviationService.getState());
   const [secondsAgo, setSecondsAgo] = useState<number>(0);
-  const selectedRoute = routeService.getSelectedRoute();
   const contacts = contactService.getContacts();
   const onlineContactsCount = contacts.filter((c) => c.online).length;
 
@@ -65,11 +66,26 @@ export const UserDashboard: React.FC = () => {
       setSecondsAgo(secs);
     });
 
+    const unsubDev = routeDeviationService.subscribe((s) => {
+      setDeviationState({ ...s });
+    });
+
     return () => {
       unsubLoc();
       unsubRisk();
+      unsubDev();
     };
   }, []);
+
+  const hasActiveIncident = Boolean(
+    activeIncident &&
+    activeIncident.status !== 'RESOLVED' &&
+    activeIncident.id !== 'NG-STANDBY'
+  );
+
+  const activeMonitoredRoute = deviationState.isMonitoring && deviationState.plannedRoute ? deviationState.plannedRoute : null;
+  const storedRoute = storageService.getItem<any>(StorageKeys.SELECTED_ROUTE, null);
+  const selectedRouteDisplay = activeMonitoredRoute || storedRoute;
 
   // Compute honest GPS status label
   const getGpsStatusDisplay = () => {
@@ -126,6 +142,68 @@ export const UserDashboard: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* ACTIVE EMERGENCY DISTRESS BANNER (Rule 15 & 24) */}
+      {hasActiveIncident && (
+        <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/90 via-red-900/60 to-navy-950/90 border-2 border-red-500/80 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-pulse flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-3 h-3 rounded-full bg-red-500 animate-ping" />
+              <span className="text-xs font-black uppercase tracking-wider text-red-300">ACTIVE EMERGENCY DISPATCH</span>
+              <span className="font-mono font-bold px-2 py-0.5 rounded bg-red-500/30 text-white text-xs border border-red-400">
+                {activeIncident.id}
+              </span>
+              <span className="text-xs font-bold px-2 py-0.5 rounded bg-white/10 text-red-200">
+                {activeIncident.status}
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-white">
+              Distress beacon actively broadcasting live GPS coordinates. Emergency contacts notified.
+            </p>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-red-200/80 font-mono">
+              <span>GPS: ({activeIncident.coordinates.lat.toFixed(5)}, {activeIncident.coordinates.lng.toFixed(5)})</span>
+              {activeIncident.responder && (
+                <span>• Responder: {activeIncident.responder.name} ({activeIncident.responder.status})</span>
+              )}
+            </div>
+          </div>
+          <Button
+            variant="danger"
+            onClick={() => navigate('/live-tracking')}
+            className="shrink-0 shadow-lg"
+            rightIcon={<ArrowRight className="w-4 h-4" />}
+          >
+            Open Live Tracking
+          </Button>
+        </div>
+      )}
+
+      {/* ACTIVE ROUTE MONITORING BANNER */}
+      {deviationState.isMonitoring && deviationState.plannedRoute && (
+        <div className="p-4 rounded-2xl bg-cyan-950/60 border border-cyan-500/40 backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shrink-0" />
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-white uppercase tracking-wider">Active Route Navigation:</span>
+                <span className="text-cyan-300 font-semibold">{deviationState.plannedRoute.name}</span>
+                <span className="text-slate-400">→ {deviationState.destination?.name}</span>
+              </div>
+              <span className="text-slate-300">
+                Cross-track deviation: <strong className={deviationState.deviationDistanceMeters > 50 ? 'text-amber-400' : 'text-emerald-400'}>{deviationState.deviationDistanceMeters}m</strong> ({deviationState.deviationLevel})
+              </span>
+            </div>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate('/live-tracking')}
+            leftIcon={<Navigation className="w-3.5 h-3.5 text-cyan-400" />}
+          >
+            View Live Navigation
+          </Button>
+        </div>
+      )}
 
       {/* Proactive Live Safety Bar */}
       <div className="p-4 rounded-2xl bg-navy-900/80 border border-white/10 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -261,15 +339,17 @@ export const UserDashboard: React.FC = () => {
           <div className="w-full grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-white/10">
             <div className="flex items-center justify-between text-slate-300 bg-navy-950/40 px-2 py-1 rounded-lg">
               <span className="text-slate-400">Location (30%):</span>
-              <span className="text-slate-300 font-semibold">Model-based</span>
+              <span className={gpsLoc ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
+                {gpsLoc ? 'Actual GPS' : 'Unavailable'}
+              </span>
             </div>
             <div className="flex items-center justify-between text-slate-300 bg-navy-950/40 px-2 py-1 rounded-lg">
               <span className="text-slate-400">Time (15%):</span>
-              <span className="text-emerald-400 font-semibold">Real Clock</span>
+              <span className="text-emerald-400 font-semibold">Actual Clock</span>
             </div>
             <div className="flex items-center justify-between text-slate-300 bg-navy-950/40 px-2 py-1 rounded-lg">
               <span className="text-slate-400">Crowd (15%):</span>
-              <span className="text-slate-300 font-semibold">Estimated</span>
+              <span className="text-slate-300 font-semibold">Model-based</span>
             </div>
             <div className="flex items-center justify-between text-slate-300 bg-navy-950/40 px-2 py-1 rounded-lg">
               <span className="text-slate-400">Lighting (15%):</span>
@@ -289,35 +369,44 @@ export const UserDashboard: React.FC = () => {
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 SAFE ROUTE
               </span>
-              <Badge variant="low" size="sm">
-                AI Active
+              <Badge variant={selectedRouteDisplay ? 'low' : 'neutral'} size="sm">
+                {selectedRouteDisplay ? 'Route Active' : 'Unconfigured'}
               </Badge>
             </div>
 
-            <div className="space-y-2 mb-3">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="w-2 h-2 rounded-full bg-purple-400" />
-                <span className="text-slate-400">From:</span>
-                <span className="font-semibold text-slate-200">
-                  {gpsLoc ? `Live GPS (±${Math.round(gpsLoc.accuracy)}m)` : 'Current Device GPS'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                <span className="text-slate-400">To:</span>
-                <span className="font-semibold text-slate-200 truncate">{selectedRoute.name}</span>
-              </div>
-            </div>
+            {selectedRouteDisplay ? (
+              <div className="space-y-2 mb-3">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+                  <span className="text-slate-400">From:</span>
+                  <span className="font-semibold text-slate-200 truncate">
+                    {gpsLoc ? `Live GPS (±${Math.round(gpsLoc.accuracy)}m)` : 'Current Device GPS'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
+                  <span className="text-slate-400">To:</span>
+                  <span className="font-semibold text-slate-200 truncate">{selectedRouteDisplay.name}</span>
+                </div>
 
-            <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/20 text-xs space-y-1">
-              <div className="flex items-center justify-between font-semibold text-purple-300">
-                <span>{selectedRoute.name}</span>
-                <span>{selectedRoute.durationMin} min</span>
+                <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/20 text-xs space-y-1">
+                  <div className="flex items-center justify-between font-semibold text-purple-300">
+                    <span className="truncate">{selectedRouteDisplay.name}</span>
+                    <span className="shrink-0">{selectedRouteDisplay.durationMin} min</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {selectedRouteDisplay.distanceKm} km • Corridor Risk Score: {selectedRouteDisplay.riskScore ?? 25}
+                  </p>
+                </div>
               </div>
-              <p className="text-[11px] text-slate-400">
-                Passes {selectedRoute.safePointsNearby} certified shelters • {selectedRoute.distanceKm} km
-              </p>
-            </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-navy-950/60 border border-white/5 text-xs text-slate-300 space-y-1.5 mb-3">
+                <div className="font-semibold text-white">No active route selected</div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Type any destination in Safe Route to calculate real-time OSRM corridors with lighting and crowd density analysis.
+                </p>
+              </div>
+            )}
           </div>
 
           <Button
@@ -368,11 +457,11 @@ export const UserDashboard: React.FC = () => {
           <RealMap
             centerLat={gpsLoc?.latitude}
             centerLng={gpsLoc?.longitude}
-            routeGeometry={selectedRoute?.path as any}
-            destination={selectedRoute ? {
-              lat: (selectedRoute as any).destinationLat || (gpsLoc?.latitude ? gpsLoc.latitude + 0.005 : 12.9716),
-              lng: (selectedRoute as any).destinationLng || (gpsLoc?.longitude ? gpsLoc.longitude + 0.005 : 77.5946),
-              name: selectedRoute.name
+            routeGeometry={selectedRouteDisplay?.geometry || (selectedRouteDisplay?.path as any)}
+            destination={selectedRouteDisplay ? {
+              lat: (selectedRouteDisplay as any).destinationLat || (gpsLoc?.latitude ? gpsLoc.latitude + 0.005 : 12.9716),
+              lng: (selectedRouteDisplay as any).destinationLng || (gpsLoc?.longitude ? gpsLoc.longitude + 0.005 : 77.5946),
+              name: selectedRouteDisplay.name
             } : null}
             className="h-[420px] w-full rounded-2xl"
           />

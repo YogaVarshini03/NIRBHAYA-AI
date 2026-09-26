@@ -27,7 +27,7 @@ export const DEFAULT_INCIDENT: EmergencyIncident = {
   status: 'RESOLVED',
   userStatus: 'All Systems Normal',
   elapsedSeconds: 0,
-  responder: DEFAULT_RESPONDER,
+  responder: undefined,
   evidenceItems: [],
   timeline: [],
 };
@@ -199,7 +199,21 @@ export const emergencyService = {
 
     const inc = this.getActiveIncident();
     inc.status = 'ACCEPTED';
-    inc.responder.status = 'EN ROUTE';
+    if (!inc.responder) {
+      inc.responder = {
+        id: 'RSP-1042',
+        name: 'Officer Arjun Kumar',
+        badgeNumber: 'POLICE-112',
+        distanceKm: 0.8,
+        etaMinutes: 3,
+        etaFormatted: '3 mins',
+        status: 'EN ROUTE',
+        vehicle: 'Interceptor Unit 112',
+        phone: '+91 112 000 1042',
+      };
+    } else {
+      inc.responder.status = 'EN ROUTE';
+    }
     inc.timeline.push({
       id: `${inc.timeline.length + 1}`,
       step: 'Responder accepted dispatch order',
@@ -241,7 +255,9 @@ export const emergencyService = {
     }
     const inc = this.getActiveIncident();
     inc.status = 'EN_ROUTE';
-    inc.responder.status = 'EN ROUTE';
+    if (inc.responder) {
+      inc.responder.status = 'EN ROUTE';
+    }
     this.saveIncident(inc);
     return inc;
   },
@@ -255,7 +271,9 @@ export const emergencyService = {
     }
     const inc = this.getActiveIncident();
     inc.status = 'ON_SCENE';
-    inc.responder.status = 'ON SCENE';
+    if (inc.responder) {
+      inc.responder.status = 'ON SCENE';
+    }
     this.saveIncident(inc);
     return inc;
   },

@@ -8,8 +8,8 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   loginAsDemoUser: () => Promise<void>;
-  loginWithCredentials: (email: string, pass: string) => Promise<{ success: boolean; user?: User; error?: string }>;
-  registerUser: (data: { name: string; email: string; password?: string; phone: string; role?: UserRole; emergencyContact?: string }) => Promise<{ success: boolean; user?: User; error?: string }>;
+  loginWithCredentials: (email: string, pass: string, accessKey?: string) => Promise<{ success: boolean; user?: User; error?: string }>;
+  registerUser: (data: { name: string; email: string; password?: string; phone: string; role?: UserRole; emergencyContact?: string }) => Promise<{ success: boolean; user?: User; accessKey?: string; error?: string }>;
   updateProfile: (data: { name?: string; phone?: string }) => Promise<{ success: boolean; user?: User; error?: string }>;
   logout: () => void;
 }
@@ -89,13 +89,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const loginWithCredentials = async (
     email: string,
-    pass: string
+    pass: string,
+    accessKey?: string
   ): Promise<{ success: boolean; user?: User; error?: string }> => {
     try {
       const res = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password: pass }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password: pass,
+          accessKey: accessKey?.trim(),
+        }),
       });
 
       const data = await res.json();
@@ -126,7 +131,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     phone: string;
     role?: UserRole;
     emergencyContact?: string;
-  }): Promise<{ success: boolean; user?: User; error?: string }> => {
+  }): Promise<{ success: boolean; user?: User; accessKey?: string; error?: string }> => {
     try {
       const payload = {
         name: data.name.trim(),
@@ -155,7 +160,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem(USER_KEY, JSON.stringify(resData.user));
 
       showToast(`Account registered successfully! Permanent ID: ${resData.user.id}`, 'success');
-      return { success: true, user: resData.user };
+      return { success: true, user: resData.user, accessKey: resData.accessKey };
     } catch (err: any) {
       console.error('[AuthContext] Registration error:', err);
       return { success: false, error: err?.message || 'Server error creating safety account.' };
@@ -163,8 +168,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const loginAsDemoUser = async (): Promise<void> => {
-    // Authenticate demo user against real backend
-    const res = await loginWithCredentials('demo@nirbhaya.ai', 'demo1234');
+    // Authenticate demo user against real backend with standard access key
+    const res = await loginWithCredentials('demo@nirbhaya.ai', 'demo1234', 'NIR-7F42-SAFE-2026');
     if (!res.success) {
       // Fallback local session if offline
       const demoUser: User = {

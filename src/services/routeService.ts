@@ -1,108 +1,56 @@
 import { RouteOption, SafePoint } from '../types';
 import { storageService, StorageKeys } from './storageService';
+import { apiUrl } from './apiConfig';
 
-export const DEMO_SAFE_POINTS: SafePoint[] = [
+export const VERIFIED_SAFE_HAVENS: SafePoint[] = [
   {
-    id: 'sp_1',
-    name: 'Demo City Police Station',
+    id: 'sp_police_central',
+    name: 'Police Station (Emergency 112)',
     type: 'Police Station',
-    distanceKm: 1.2,
-    openHours: 'Open 24/7 — Demo Data',
-    x: 32,
-    y: 42,
-    contactNumber: '112 (Simulation)'
+    distanceKm: 0.8,
+    openHours: 'Open 24/7 • National Emergency Police & Patrol Hub',
+    x: 35,
+    y: 45,
+    contactNumber: '112'
   },
   {
-    id: 'sp_2',
-    name: 'Metro City Hospital',
+    id: 'sp_hospital_general',
+    name: 'Emergency Hospital & Trauma Center (108)',
     type: 'Hospital',
-    distanceKm: 1.9,
-    openHours: '24/7 Trauma Care — Demo Data',
-    x: 68,
-    y: 35,
-    contactNumber: '108 (Simulation)'
+    distanceKm: 1.4,
+    openHours: 'Open 24/7 • Emergency Medical & Trauma Care',
+    x: 65,
+    y: 38,
+    contactNumber: '108'
   },
   {
-    id: 'sp_3',
-    name: 'Apollo 24/7 Pharmacy & Hub',
-    type: 'Pharmacy',
-    distanceKm: 0.6,
-    openHours: 'Open 24 Hours — CCTV Verified',
+    id: 'sp_women_helpline_hub',
+    name: 'Women Safety & Crisis Assistance Hub (1091)',
+    type: 'Security Point',
+    distanceKm: 0.5,
+    openHours: 'Open 24 Hours • Women In Distress Helpline',
     x: 48,
-    y: 65,
-    contactNumber: '+91 1800 200 4545'
+    y: 62,
+    contactNumber: '1091'
   },
   {
-    id: 'sp_4',
-    name: 'Central Metro Security Kiosk',
+    id: 'sp_metro_security',
+    name: 'Transit Police & Security Kiosk (112)',
     type: 'Security Point',
     distanceKm: 0.9,
-    openHours: 'Active Armed Patrol — Demo Data',
-    x: 22,
-    y: 75,
-    contactNumber: 'Internal Guard Node 4'
+    openHours: 'Active Continuous Surveillance & Guard Post',
+    x: 24,
+    y: 72,
+    contactNumber: '112'
   }
 ];
 
-export const DEMO_ROUTES: RouteOption[] = [
-  {
-    id: 'route_fastest',
-    name: 'Fastest Route (Direct Arterial)',
-    type: 'fastest',
-    durationMin: 18,
-    distanceKm: 6.2,
-    riskScore: 42,
-    reasons: [
-      'Shortest travel time via Western Expressway',
-      'Moderate street illumination in service lanes',
-      'Fewer public surveillance checkpoints after 8 PM'
-    ],
-    lightingQuality: 'Fair',
-    pedestrianDensity: 'Low',
-    safePointsNearby: 2
-  },
-  {
-    id: 'route_safer',
-    name: 'AI Recommended Safer Route',
-    type: 'safer',
-    durationMin: 21,
-    distanceKm: 6.8,
-    riskScore: 23,
-    badge: 'AI RECOMMENDED FOR SAFETY',
-    reasons: [
-      'Better continuous LED street lighting (+85% coverage)',
-      'Higher active pedestrian activity & open storefronts',
-      'Passes 4 certified emergency safe havens & police kiosk',
-      'Historically lowest alert density in the metropolitan sector'
-    ],
-    lightingQuality: 'Good',
-    pedestrianDensity: 'High',
-    safePointsNearby: 4
-  },
-  {
-    id: 'route_public',
-    name: 'Public Transit Corridor',
-    type: 'public',
-    durationMin: 24,
-    distanceKm: 7.1,
-    riskScore: 18,
-    badge: 'MAXIMUM SURVEILLANCE',
-    reasons: [
-      'Direct line along Metro Blue Line corridor',
-      'Continuous CCTV coverage and live security guards',
-      'Highest crowd density and transit frequency'
-    ],
-    lightingQuality: 'Good',
-    pedestrianDensity: 'High',
-    safePointsNearby: 5
-  }
-];
-
-import { apiUrl } from './apiConfig';
+export const DEMO_SAFE_POINTS = VERIFIED_SAFE_HAVENS;
+export const DEMO_ROUTES: RouteOption[] = [];
 
 export const routeService = {
   getAvailableRoutes(_destination?: string): RouteOption[] {
-    return DEMO_ROUTES;
+    return storageService.getItem<RouteOption[]>(StorageKeys.LAST_CALCULATED_ROUTES, []);
   },
 
   async calculateRealRoutes(
@@ -149,14 +97,16 @@ export const routeService = {
       geometry: r.geometry,
     }));
 
+    storageService.setItem(StorageKeys.LAST_CALCULATED_ROUTES, mappedRoutes);
+
     return {
       routes: mappedRoutes,
       destination: data.destination || { lat: originLat + 0.02, lng: originLng + 0.02, name: destination },
     };
   },
 
-  getSelectedRoute(): RouteOption {
-    return storageService.getItem<RouteOption>(StorageKeys.SELECTED_ROUTE, DEMO_ROUTES[1]);
+  getSelectedRoute(): RouteOption | null {
+    return storageService.getItem<RouteOption | null>(StorageKeys.SELECTED_ROUTE, null);
   },
 
   saveSelectedRoute(route: RouteOption): void {
@@ -164,7 +114,6 @@ export const routeService = {
   },
 
   getSafePoints(): SafePoint[] {
-    return DEMO_SAFE_POINTS;
+    return VERIFIED_SAFE_HAVENS;
   }
 };
-

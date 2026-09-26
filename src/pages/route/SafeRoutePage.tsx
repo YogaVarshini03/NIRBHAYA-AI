@@ -35,7 +35,10 @@ export const SafeRoutePage: React.FC = () => {
   const [destinationError, setDestinationError] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [routes, setRoutes] = useState<RouteOption[]>(() => routeService.getAvailableRoutes());
-  const [selectedRoute, setSelectedRoute] = useState<RouteOption>(() => routeService.getSelectedRoute());
+  const [selectedRoute, setSelectedRoute] = useState<RouteOption | null>(() => {
+    const list = routeService.getAvailableRoutes();
+    return routeService.getSelectedRoute() || (list.length > 0 ? list[0] : null);
+  });
 
   React.useEffect(() => {
     locationService.startContinuousTracking();
@@ -189,96 +192,108 @@ export const SafeRoutePage: React.FC = () => {
             <span className="text-xs text-slate-400">Sorted by AI Safety Score</span>
           </div>
 
-          {routes.map((route) => {
-            const isSelected = selectedRoute.id === route.id;
-            const isSafer = route.type === 'safer';
+          {routes.length === 0 ? (
+            <div className="p-8 rounded-2xl bg-navy-950/60 border border-white/10 text-center space-y-3">
+              <Navigation className="w-10 h-10 text-cyan-400 mx-auto" />
+              <h4 className="text-base font-bold text-white">Enter Destination to Analyze Corridors</h4>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+                Type any destination or landmark in the input above (e.g. Coimbatore Railway Station, Central Metro, General Hospital) and click "Analyze Routes" to calculate real-time road corridors and safety scores.
+              </p>
+            </div>
+          ) : (
+            routes.map((route) => {
+              const isSelected = selectedRoute?.id === route.id;
+              const isSafer = route.type === 'safer';
 
-            return (
-              <div
-                key={route.id}
-                onClick={() => handleSelectRoute(route)}
-                className={`p-5 rounded-2xl border transition-all duration-200 cursor-pointer ${
-                  isSelected
-                    ? 'bg-purple-950/40 border-purple-500 shadow-glow-violet'
-                    : 'bg-navy-900/60 border-white/[0.08] hover:border-white/20'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <div>
-                    {route.badge && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 mb-1.5">
-                        <Sparkles className="w-3 h-3" />
-                        {route.badge}
-                      </span>
-                    )}
-                    <h4 className="text-base font-bold text-white">{route.name}</h4>
-                  </div>
-                  <div className="text-right">
-                    <span
-                      className={`text-xs font-bold px-2 py-0.5 rounded-lg border ${
-                        route.riskScore <= 30
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                      }`}
-                    >
-                      Risk: {route.riskScore}/100
-                    </span>
-                  </div>
-                </div>
-
-                {/* Duration & Distance */}
-                <div className="flex items-center gap-4 text-xs text-slate-300 my-3 font-mono">
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" /> {route.durationMin} mins
-                  </span>
-                  <span>•</span>
-                  <span>{route.distanceKm} km</span>
-                  <span>•</span>
-                  <span className="text-purple-300">{route.safePointsNearby} Safe Havens</span>
-                </div>
-
-                {/* Reasons List */}
-                <div className="space-y-1 pt-2 border-t border-white/5">
-                  {route.reasons.map((reason, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-xs text-slate-400">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>{reason}</span>
+              return (
+                <div
+                  key={route.id}
+                  onClick={() => handleSelectRoute(route)}
+                  className={`p-5 rounded-2xl border transition-all duration-200 cursor-pointer ${
+                    isSelected
+                      ? 'bg-purple-950/40 border-purple-500 shadow-glow-violet'
+                      : 'bg-navy-900/60 border-white/[0.08] hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div>
+                      {route.badge && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 mb-1.5">
+                          <Sparkles className="w-3 h-3" />
+                          {route.badge}
+                        </span>
+                      )}
+                      <h4 className="text-base font-bold text-white">{route.name}</h4>
                     </div>
-                  ))}
-                </div>
+                    <div className="text-right">
+                      <span
+                        className={`text-xs font-bold px-2 py-0.5 rounded-lg border ${
+                          route.riskScore <= 30
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}
+                      >
+                        Risk: {route.riskScore}/100
+                      </span>
+                    </div>
+                  </div>
 
-                {/* Select button */}
-                <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">
-                    {isSelected ? 'Currently Selected for Navigation' : 'Click to select & visualize'}
-                  </span>
-                  <Button
-                    variant={isSelected ? 'primary' : 'secondary'}
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSelectRoute(route);
-                    }}
-                  >
-                    {isSelected ? 'Selected' : 'Select Route'}
-                  </Button>
+                  {/* Duration & Distance */}
+                  <div className="flex items-center gap-4 text-xs text-slate-300 my-3 font-mono">
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" /> {route.durationMin} mins
+                    </span>
+                    <span>•</span>
+                    <span>{route.distanceKm} km</span>
+                    <span>•</span>
+                    <span className="text-purple-300">{route.safePointsNearby} Safe Havens</span>
+                  </div>
+
+                  {/* Reasons List */}
+                  <div className="space-y-1 pt-2 border-t border-white/5">
+                    {route.reasons.map((reason, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs text-slate-400">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>{reason}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Select button */}
+                  <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">
+                      {isSelected ? 'Currently Selected for Navigation' : 'Click to select & visualize'}
+                    </span>
+                    <Button
+                      variant={isSelected ? 'primary' : 'secondary'}
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectRoute(route);
+                      }}
+                    >
+                      {isSelected ? 'Selected' : 'Select Route'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
 
         {/* Right Column: Live Map with selected route visualized (Rule 21 & 22) */}
         <div className="lg:col-span-7 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-white">Interactive Corridor Visualization</h3>
-            <span className="text-xs text-slate-400">Showing {selectedRoute.name}</span>
+            <span className="text-xs text-slate-400">
+              {selectedRoute ? `Showing ${selectedRoute.name}` : 'Awaiting Destination Analysis'}
+            </span>
           </div>
 
           <RealMap
             centerLat={gpsLoc?.latitude}
             centerLng={gpsLoc?.longitude}
-            routeGeometry={selectedRoute?.path as any}
+            routeGeometry={(selectedRoute?.geometry || selectedRoute?.path) as any}
             destination={destinationCoords || (selectedRoute?.path?.length ? {
               lat: selectedRoute.path[selectedRoute.path.length - 1][0],
               lng: selectedRoute.path[selectedRoute.path.length - 1][1],
@@ -295,14 +310,17 @@ export const SafeRoutePage: React.FC = () => {
                 <span>Live Route Deviation Protection Ready</span>
               </div>
               <p className="text-xs text-slate-300">
-                Continuous geofence monitoring will detect if you deviate &gt;100m from {selectedRoute.name}.
+                {selectedRoute
+                  ? `Continuous geofence monitoring will detect if you deviate >100m from ${selectedRoute.name}.`
+                  : 'Analyze a destination and select a corridor to activate live navigation and deviation tracking.'}
               </p>
             </div>
             <Button
               variant="primary"
               size="md"
+              disabled={!selectedRoute}
               onClick={handleStartNavigation}
-              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shrink-0 w-full sm:w-auto"
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shrink-0 w-full sm:w-auto disabled:opacity-50"
               leftIcon={<Navigation className="w-4 h-4" />}
             >
               Start Live Navigation

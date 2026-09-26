@@ -29,11 +29,19 @@ export const LiveTrackingPage: React.FC = () => {
   const { activeIncident } = useEmergency();
   const { showToast } = useToast();
   
+  const isEmergencyActive = Boolean(
+    activeIncident &&
+    activeIncident.status !== 'RESOLVED' &&
+    activeIncident.id !== 'NG-STANDBY'
+  );
+  const responder = activeIncident?.responder;
+  const isResponderAssigned = Boolean(responder && responder.name && responder.status !== 'STANDBY');
+
   const [currentGps, setCurrentGps] = useState<GPSLocation | null>(locationService.getCurrentLocation());
   const [gpsStatus, setGpsStatus] = useState<string>(locationService.getStatus());
   const [responderGps, setResponderGps] = useState<{ lat: number; lng: number; name?: string } | null>(null);
-  const [distanceKm, setDistanceKm] = useState<number>(activeIncident.responder?.distanceKm || 1.8);
-  const [etaSeconds, setEtaSeconds] = useState<number>(272); // 4m 32s
+  const [distanceKm, setDistanceKm] = useState<number | null>(() => activeIncident.responder?.distanceKm || null);
+  const [etaSeconds, setEtaSeconds] = useState<number | null>(() => (activeIncident.responder?.etaMinutes ? Math.round(activeIncident.responder.etaMinutes * 60) : null));
 
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessment>(() => riskMonitoringService.getStatus().lastAssessment);
   const [deviationState, setDeviationState] = useState<RouteDeviationState>(() => routeDeviationService.getState());
@@ -94,7 +102,7 @@ export const LiveTrackingPage: React.FC = () => {
         setResponderGps({
           lat: payload.latitude,
           lng: payload.longitude,
-          name: 'Patrol Unit 7 (En Route)',
+          name: payload.responderName || activeIncident.responder?.name || 'Emergency Responder (En Route)',
         });
       }
     });
@@ -105,7 +113,7 @@ export const LiveTrackingPage: React.FC = () => {
         setResponderGps({
           lat: payload.latitude,
           lng: payload.longitude,
-          name: 'Patrol Unit 7 (En Route)',
+          name: payload.responderName || activeIncident.responder?.name || 'Emergency Responder (En Route)',
         });
       }
     });
@@ -304,10 +312,20 @@ export const LiveTrackingPage: React.FC = () => {
             <Car className="w-4 h-4 text-blue-400" />
           </div>
           <div className="text-3xl font-extrabold text-white font-mono">
-            {distanceKm} <span className="text-sm text-slate-400 font-normal">km</span>
+            {distanceKm !== null ? (
+              <>
+                {distanceKm} <span className="text-sm text-slate-400 font-normal">km</span>
+              </>
+            ) : (
+              <span className="text-slate-500 text-2xl">--</span>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            {activeIncident.responder?.name || 'Officer Arjun Kumar'} • {activeIncident.responder?.badgeNumber || 'RSP-1042'}
+            {isResponderAssigned
+              ? `${responder?.name} • ${responder?.badgeNumber || 'Application Responder'}`
+              : isEmergencyActive
+              ? 'Awaiting responder assignment'
+              : 'Standby • No active emergency'}
           </p>
         </Card>
 
@@ -317,20 +335,29 @@ export const LiveTrackingPage: React.FC = () => {
             <Clock className="w-4 h-4 text-purple-400" />
           </div>
           <div className="text-3xl font-extrabold text-purple-300 font-mono">
-            {formatEta(etaSeconds)} <span className="text-sm text-slate-400 font-normal">min</span>
+            {etaSeconds !== null ? (
+              <>
+                {formatEta(etaSeconds)} <span className="text-sm text-slate-400 font-normal">min</span>
+              </>
+            ) : (
+              <span className="text-slate-500 text-2xl">--:--</span>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Status: <span className="text-emerald-400 font-semibold">{activeIncident.responder?.status || 'EN ROUTE'}</span>
+            Status:{' '}
+            <span className={isResponderAssigned ? 'text-emerald-400 font-semibold' : 'text-slate-400'}>
+              {isResponderAssigned ? responder?.status : isEmergencyActive ? 'BROADCASTING' : 'STANDBY'}
+            </span>
           </p>
         </Card>
 
         <Card variant="glass" className="p-6">
           <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
             <span className="font-semibold uppercase tracking-wider">Telemetry Link</span>
-            <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
+            <Radio className={`w-4 h-4 ${socketService.getStatus() === 'CONNECTED' ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`} />
           </div>
           <div className="text-3xl font-extrabold text-emerald-400 font-mono">
-            {socketService.getStatus() === 'CONNECTED' ? '100%' : '99.8%'} <span className="text-sm text-slate-400 font-normal">Sync</span>
+            {socketService.getStatus() === 'CONNECTED' ? 'ONLINE' : 'CONNECTING'}
           </div>
           <p className="text-xs text-slate-400 mt-1">
             Location Accuracy:{' '}

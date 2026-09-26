@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ShieldAlert, AlertOctagon } from 'lucide-react';
+import { ShieldAlert, AlertOctagon, Zap } from 'lucide-react';
 import { useEmergency } from '../../context/EmergencyContext';
 import { useToast } from '../../context/ToastContext';
+import { audioService } from '../../services/audioService';
 
 interface SosHoldButtonProps {
   size?: 'normal' | 'large';
@@ -12,43 +13,79 @@ interface SosHoldButtonProps {
 export const SosHoldButton: React.FC<SosHoldButtonProps> = ({
   size = 'normal',
   className = '',
-  source = 'Quick SOS Button',
+  source = 'Manual SOS Hold Button',
 }) => {
   const { triggerSos } = useEmergency();
   const { showToast } = useToast();
   const [holding, setHolding] = useState(false);
   const [progress, setProgress] = useState(0); // 0 to 100%
+  const [isActivated, setIsActivated] = useState(false);
   const holdTimerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
+  const beepTrackerRef = useRef<{ 1: boolean; 2: boolean }>({ 1: false, 2: false });
   const HOLD_DURATION_MS = 3000;
 
-  const startHold = () => {
+  const startHold = (e: React.MouseEvent | React.TouchEvent) => {
+    // Prevent context menu or extra events
+    if ('button' in e && e.button !== 0) return;
+
     setHolding(true);
+    setIsActivated(false);
     startTimeRef.current = Date.now();
+    beepTrackerRef.current = { 1: false, 2: false };
+
+    // 0.0s: Start emergency warning sound (beep 0)
+    audioService.startSosHoldFeedback();
 
     const interval = window.setInterval(() => {
       const elapsed = Date.now() - startTimeRef.current;
       const pct = Math.min(100, (elapsed / HOLD_DURATION_MS) * 100);
       setProgress(pct);
 
+      // 1 sec (~33%): Beep 1
+      if (elapsed >= 1000 && !beepTrackerRef.current[1]) {
+        beepTrackerRef.current[1] = true;
+        audioService.playHoldBeep(1);
+      }
+
+      // 2 sec (~66%): Beep 2
+      if (elapsed >= 2000 && !beepTrackerRef.current[2]) {
+        beepTrackerRef.current[2] = true;
+        audioService.playHoldBeep(2);
+      }
+
+      // 3.0 sec (100%): Activate emergency
       if (elapsed >= HOLD_DURATION_MS) {
         clearInterval(interval);
+        holdTimerRef.current = null;
         setHolding(false);
-        setProgress(0);
+        setProgress(100);
+        setIsActivated(true);
+
+        // Stop hold sound, play strong activation sound, create real incident
+        audioService.stopSosHoldFeedback();
+        audioService.playSosActivatedSound();
         triggerSos(source);
+
+        setTimeout(() => {
+          setProgress(0);
+          setIsActivated(false);
+        }, 3000);
       }
-    }, 40);
+    }, 30);
 
     holdTimerRef.current = interval;
   };
 
   const cancelHold = () => {
-    if (holding && progress < 98) {
-      showToast('SOS cancelled.', 'info', 2500);
-    }
     if (holdTimerRef.current) {
       clearInterval(holdTimerRef.current);
       holdTimerRef.current = null;
+    }
+    audioService.stopSosHoldFeedback();
+
+    if (holding && progress < 98) {
+      showToast('SOS hold cancelled. No incident created.', 'info', 2000);
     }
     setHolding(false);
     setProgress(0);
@@ -132,23 +169,37 @@ export const SosHoldButton: React.FC<SosHoldButtonProps> = ({
           }`}
         >
           <div className="relative">
-            {holding ? (
+            {isActivated ? (
+              <Zap className="w-10 h-10 text-white animate-bounce mb-1" />
+            ) : holding ? (
               <AlertOctagon className="w-10 h-10 text-white animate-spin-slow mb-1" />
             ) : (
               <ShieldAlert className="w-10 h-10 text-white mb-1 group-hover:scale-110 transition-transform" />
             )}
           </div>
           <span className="text-xs md:text-sm font-extrabold text-white tracking-widest uppercase drop-shadow-md">
-            {holding ? `${Math.round(progress)}%` : 'HOLD TO ACTIVATE'}
+            {isActivated
+              ? 'EMERGENCY ACTIVATED'
+              : holding
+              ? `HOLDING... ${Math.round(progress)}%`
+              : 'HOLD SOS'}
           </span>
-          <span className="text-[10px] text-red-200/80 font-medium tracking-wide">
-            {holding ? 'KEEP HOLDING' : 'HOLD 3 SEC'}
+          <span className="text-[10px] text-red-200/90 font-semibold tracking-wide">
+            {isActivated
+              ? 'DISPATCHING REAL INCIDENT'
+              : holding
+              ? progress < 33
+                ? '3 SECONDS REQUIRED'
+                : progress < 66
+                ? 'KEEP HOLDING (1s LEFT)'
+                : 'ALMOST READY...'
+              : '3 SECONDS REQUIRED'}
           </span>
         </div>
       </div>
 
       <p className="mt-3 text-xs text-slate-400 font-medium text-center">
-        Emergency trigger transmits real GPS coordinates & alerts verified contacts.
+        Press & hold 3 seconds to activate real emergency distress workflow. Releasing early cancels cleanly.
       </p>
     </div>
   );

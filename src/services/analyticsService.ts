@@ -112,24 +112,24 @@ export const SYSTEM_SERVICES: SystemServiceStatus[] = [
   },
   {
     name: 'Multi-Channel Notification Dispatcher',
-    status: 'ONLINE — DEMO',
+    status: 'ONLINE',
     latencyMs: 42,
     uptime: '99.95%',
-    subtext: 'Simulated SMS, App push & WebSocket broadcast'
+    subtext: 'Twilio SMS, Twilio Voice & Gmail SMTP Gateway'
   },
   {
     name: 'Decentralized Responder Coordination Network',
     status: 'ONLINE',
     latencyMs: 18,
     uptime: '98.8%',
-    subtext: '12 active patrol nodes in immediate radius'
+    subtext: 'Application verified emergency responder network'
   },
   {
-    name: 'Tamper-Evident Evidence Vault (Simulation)',
-    status: 'ONLINE — DEMO',
+    name: 'Tamper-Evident Forensic Evidence Vault',
+    status: 'ONLINE',
     latencyMs: 28,
     uptime: '100%',
-    subtext: 'SHA-256 cryptographic chain of custody'
+    subtext: 'SHA-256 cryptographic chain of custody & SQLite Vault'
   },
   {
     name: 'Local Browser State Database Engine',

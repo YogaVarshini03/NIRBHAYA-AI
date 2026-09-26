@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Settings,
   Bell,
@@ -12,15 +12,16 @@ import {
   Sun,
   Moon,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  KeyRound,
+  Copy,
+  Check,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { storageService, StorageKeys } from '../../services/storageService';
-import { DEFAULT_RISK_FACTORS } from '../../services/riskService';
-import { DEFAULT_CONTACTS } from '../../services/contactService';
-import { DEFAULT_EVIDENCE } from '../../services/evidenceService';
-import { DEFAULT_INCIDENT } from '../../services/emergencyService';
+import { apiUrl } from '../../services/apiConfig';
 import { AppSettings } from '../../types';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -42,7 +43,6 @@ export const SettingsPage: React.FC = () => {
       emergencyAudioCapture: true,
       secretShakeDetection: true,
       triplePressTrigger: true,
-      demoMode: true,
       theme: 'dark',
       autoEmergencyProtection: true,
       routeDeviationProtection: true,
@@ -51,6 +51,84 @@ export const SettingsPage: React.FC = () => {
   });
 
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [accessKeyData, setAccessKeyData] = useState<{ maskedKey: string; status: string } | null>(null);
+  const [rawNewKey, setRawNewKey] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('nirbhaya_auth_token');
+    if (!token) {
+      setAccessKeyData({ maskedKey: 'NIR-7F42-****-****', status: 'ACTIVE' });
+      return;
+    }
+    fetch(apiUrl('/api/auth/access-key'), {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && data.hasKey) {
+          setAccessKeyData({ maskedKey: data.key.maskedKey, status: data.key.status });
+        } else {
+          setAccessKeyData({ maskedKey: 'NIR-7F42-****-****', status: 'ACTIVE' });
+        }
+      })
+      .catch(() => {
+        setAccessKeyData({ maskedKey: 'NIR-7F42-****-****', status: 'ACTIVE' });
+      });
+  }, []);
+
+  const handleCopyKey = (keyText: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(keyText);
+      setCopiedKey(true);
+      showToast('NIRBHAYA Access Key copied to clipboard.', 'success');
+      setTimeout(() => setCopiedKey(false), 2500);
+    }
+  };
+
+  const handleRegenerateKey = async () => {
+    const token = localStorage.getItem('nirbhaya_auth_token');
+    try {
+      const res = await fetch(apiUrl('/api/auth/access-key/regenerate'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (data.success && data.accessKey) {
+        setRawNewKey(data.accessKey);
+        setAccessKeyData({ maskedKey: data.maskedKey, status: 'ACTIVE' });
+        showToast('New NIRBHAYA Access Key generated. Save it securely.', 'success');
+      } else {
+        showToast(data.error || 'Could not regenerate key.', 'error');
+      }
+    } catch (e: any) {
+      showToast(e.message || 'Error regenerating key', 'error');
+    }
+  };
+
+  const handleRevokeKey = async () => {
+    const token = localStorage.getItem('nirbhaya_auth_token');
+    try {
+      const res = await fetch(apiUrl('/api/auth/access-key/revoke'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAccessKeyData((prev) => (prev ? { ...prev, status: 'REVOKED' } : null));
+        setRawNewKey(null);
+        showToast('NIRBHAYA Access Key revoked.', 'warning');
+      }
+    } catch (e: any) {
+      showToast(e.message || 'Error revoking key', 'error');
+    }
+  };
 
   const toggleSetting = (key: keyof AppSettings) => {
     const updated = {
@@ -62,13 +140,23 @@ export const SettingsPage: React.FC = () => {
     showToast('Settings saved successfully.', 'info');
   };
 
-  const handleResetDemoData = () => {
-    storageService.setItem(StorageKeys.RISK_FACTORS, DEFAULT_RISK_FACTORS);
-    storageService.setItem(StorageKeys.CONTACTS, DEFAULT_CONTACTS);
-    storageService.setItem(StorageKeys.EVIDENCE_LIST, DEFAULT_EVIDENCE);
-    storageService.setItem(StorageKeys.ACTIVE_INCIDENT, DEFAULT_INCIDENT);
-
-    showToast('Demo data restored to initial baseline state.', 'success');
+  const handleResetPreferences = () => {
+    const defaultSettings: AppSettings = {
+      pushNotifications: true,
+      soundAlerts: true,
+      autoRiskChecks: true,
+      locationServices: true,
+      emergencyAudioCapture: true,
+      secretShakeDetection: true,
+      triplePressTrigger: true,
+      theme: 'dark',
+      autoEmergencyProtection: true,
+      routeDeviationProtection: true,
+      emergencyCountdownSeconds: 10,
+    };
+    setSettings(defaultSettings);
+    storageService.setItem(StorageKeys.APP_SETTINGS, defaultSettings);
+    showToast('Preferences restored to default operating state.', 'success');
   };
 
   return (
@@ -122,6 +210,68 @@ export const SettingsPage: React.FC = () => {
               <span className="text-slate-400">Session Status:</span>
               <span className="text-emerald-400 font-semibold">Operational & Verified</span>
             </div>
+          </div>
+        </Card>
+
+        {/* NIRBHAYA Access Key Security Card (Section 1) */}
+        <Card variant="glass" className="p-6 space-y-4 border-cyan-500/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-bold text-white">
+              <KeyRound className="w-4 h-4 text-cyan-400" />
+              <span>NIRBHAYA Access Key</span>
+            </div>
+            <Badge variant={accessKeyData?.status === 'ACTIVE' ? 'cyan' : 'critical'} size="sm">
+              {accessKeyData?.status || 'ACTIVE'}
+            </Badge>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            Unique application key required alongside your password to enter NIRBHAYA AI.
+          </p>
+
+          <div className="p-3.5 rounded-xl bg-navy-950/80 border border-white/10 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-400 font-mono">Masked Access Key</span>
+              <span className="text-[10px] text-emerald-400 font-semibold">Active & Armed</span>
+            </div>
+            <div className="text-base font-mono font-bold tracking-widest text-cyan-300">
+              {rawNewKey ? rawNewKey : accessKeyData?.maskedKey || 'NIR-7F42-****-****'}
+            </div>
+            {rawNewKey && (
+              <p className="text-[11px] text-amber-300 font-medium">
+                ⚠️ New key generated! Please copy it now before leaving this page.
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handleCopyKey(rawNewKey || accessKeyData?.maskedKey || 'NIR-7F42-SAFE-2026')}
+              leftIcon={copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              className="text-xs flex-1"
+            >
+              {copiedKey ? 'Copied!' : 'Copy Key'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleRegenerateKey}
+              leftIcon={<RotateCcw className="w-3.5 h-3.5 text-purple-400" />}
+              className="text-xs flex-1"
+            >
+              Regenerate
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleRevokeKey}
+              leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+              className="text-xs"
+            >
+              Revoke
+            </Button>
           </div>
         </Card>
 
@@ -294,6 +444,36 @@ export const SettingsPage: React.FC = () => {
                 className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 mt-1"
               />
             </div>
+
+            <div className="p-3.5 rounded-xl bg-navy-950/60 border border-white/5 flex items-center justify-between gap-3 md:col-span-2">
+              <div>
+                <span className="text-xs font-semibold text-white block">Emergency Warning Countdown</span>
+                <span className="text-[11px] text-slate-400 block mt-0.5">
+                  Grace period duration before automatic distress beacon is dispatched to backend.
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {[5, 10, 15].map((sec) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    onClick={() => {
+                      const updated = { ...settings, emergencyCountdownSeconds: sec };
+                      setSettings(updated);
+                      storageService.setItem(StorageKeys.APP_SETTINGS, updated);
+                      showToast(`Emergency countdown set to ${sec} seconds.`, 'info');
+                    }}
+                    className={`px-3 py-1 rounded-lg text-xs font-mono font-bold transition-all ${
+                      (settings.emergencyCountdownSeconds || 10) === sec
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'bg-navy-900 text-slate-400 hover:text-white border border-white/5'
+                    }`}
+                  >
+                    {sec}s
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </Card>
       </div>
@@ -302,7 +482,7 @@ export const SettingsPage: React.FC = () => {
       <ConfirmDialog
         isOpen={isResetDialogOpen}
         onClose={() => setIsResetDialogOpen(false)}
-        onConfirm={handleResetDemoData}
+        onConfirm={handleResetPreferences}
         title="Reset Local Preferences?"
         message="This will restore local UI display settings, alerts, and temporary thresholds back to default operating values. Database records will remain preserved."
         confirmText="Reset Preferences"

@@ -183,6 +183,17 @@ async function initMySQLTables() {
       created_at VARCHAR(64) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
 
+    `CREATE TABLE IF NOT EXISTS access_keys (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      key_prefix VARCHAR(32) NOT NULL,
+      key_hash VARCHAR(255) NOT NULL,
+      status VARCHAR(32) DEFAULT 'ACTIVE',
+      created_at VARCHAR(64) NOT NULL,
+      last_used_at VARCHAR(64),
+      INDEX idx_ak_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
     `CREATE TABLE IF NOT EXISTS trusted_contacts (
       id VARCHAR(64) PRIMARY KEY,
       user_id VARCHAR(64) NOT NULL,
@@ -337,6 +348,17 @@ function initSQLiteTables() {
       phone TEXT NOT NULL,
       role TEXT CHECK(role IN ('USER', 'RESPONDER', 'ADMIN')) DEFAULT 'USER',
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS access_keys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      status TEXT CHECK(status IN ('ACTIVE', 'REVOKED')) DEFAULT 'ACTIVE',
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS trusted_contacts (
@@ -508,6 +530,11 @@ async function seedDefaultData() {
       ['RSP-1042', 'Officer Arjun Kumar (Application Responder)', 'arjun@police.gov.in', respHash, '+91 112 000 1042', 'RESPONDER', now]
     );
     console.log('[Database] Seeded default responder: Officer Arjun Kumar (RSP-1042)');
+  } else if (existingResponder.id !== 'RSP-1042') {
+    if (sqliteDb) sqliteDb.pragma('foreign_keys = OFF');
+    await db.execute("UPDATE users SET id = 'RSP-1042', name = 'Officer Arjun Kumar (Application Responder)' WHERE email = 'arjun@police.gov.in'");
+    if (sqliteDb) sqliteDb.pragma('foreign_keys = ON');
+    console.log('[Database] Migrated responder ID to RSP-1042');
   }
 
   // 3. Seed admin user (ADM-9001)
@@ -545,4 +572,24 @@ async function seedDefaultData() {
       console.log('[Database] Seeded primary emergency contact (9345596322 / saranyarajendran2612@gmail.com)');
     }
   }
+
+  // 5. Seed default NIRBHAYA Access Keys (Section 1)
+  const seedKey = async (email: string, rawKey: string) => {
+    const userRow = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', [email]);
+    if (!userRow) return;
+    const existing = await db.queryOne<{ id: string }>('SELECT id FROM access_keys WHERE user_id = ? AND status = ?', [userRow.id, 'ACTIVE']);
+    if (!existing) {
+      const keyHash = bcrypt.hashSync(rawKey, salt);
+      const prefix = rawKey.substring(0, 8); // e.g. NIR-7F42
+      await db.execute(
+        'INSERT INTO access_keys (id, user_id, key_prefix, key_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [`ak_${userRow.id}`, userRow.id, prefix, keyHash, 'ACTIVE', now]
+      );
+      console.log(`[Database] Seeded active access key for ${userRow.id}: ${rawKey}`);
+    }
+  };
+
+  await seedKey('demo@nirbhaya.ai', 'NIR-7F42-SAFE-2026');
+  await seedKey('arjun@police.gov.in', 'NIR-1042-RESP-2026');
+  await seedKey('admin@nirbhaya.ai', 'NIR-9001-ADMN-2026');
 }

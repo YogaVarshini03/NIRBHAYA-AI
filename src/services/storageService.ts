@@ -8,6 +8,7 @@ export const StorageKeys = {
   SAFETY_HISTORY: 'nirbhaya_safety_history',
   APP_SETTINGS: 'nirbhaya_app_settings',
   NOTIFICATIONS: 'nirbhaya_notifications',
+  LAST_CALCULATED_ROUTES: 'nirbhaya_last_routes',
 };
 
 export const storageService = {

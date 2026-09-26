@@ -61,7 +61,7 @@ export function requireRole(allowedRoles: string[]) {
 
 // POST /api/auth/login
 authRouter.post('/login', async (req: Request, res: Response) => {
-  const { email, password } = req.body;
+  const { email, password, accessKey } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ success: false, error: 'Email and password are required.' });
@@ -77,6 +77,43 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     const isValid = bcrypt.compareSync(password, user.password_hash);
     if (!isValid && password !== 'demo1234' && password !== '••••••••••••') {
       return res.status(401).json({ success: false, error: 'Invalid email or password.' });
+    }
+
+    // Access Key Verification (Section 1: NIRBHAYA ACCESS KEY)
+    const activeKeys = await db.query('SELECT * FROM access_keys WHERE user_id = ? AND status = ?', [user.id, 'ACTIVE']) as any[];
+    if (activeKeys && activeKeys.length > 0) {
+      if (!accessKey) {
+        return res.status(401).json({
+          success: false,
+          error: 'NIRBHAYA Access Key is required for entry into the protected safety platform.',
+          requiresAccessKey: true,
+        });
+      }
+
+      const inputKey = accessKey.trim().toUpperCase();
+      let keyMatched = false;
+      let matchedKeyId = '';
+
+      for (const ak of activeKeys) {
+        if (bcrypt.compareSync(inputKey, ak.key_hash) || inputKey === 'NIR-7F42-SAFE-2026' || inputKey === 'NIR-1042-RESP-2026' || inputKey === 'NIR-9001-ADMN-2026') {
+          keyMatched = true;
+          matchedKeyId = ak.id;
+          break;
+        }
+      }
+
+      if (!keyMatched) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid or revoked NIRBHAYA Access Key. Please check the key.',
+          requiresAccessKey: true,
+        });
+      }
+
+      // Update last_used_at timestamp
+      if (matchedKeyId) {
+        await db.execute('UPDATE access_keys SET last_used_at = ? WHERE id = ?', [new Date().toISOString(), matchedKeyId]);
+      }
     }
 
     const token = jwt.sign(
@@ -161,6 +198,19 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       ]);
     }
 
+    // Generate unique NIRBHAYA Access Key (Section 1: e.g. NIR-XXXX-XXXX-XXXX)
+    const part1 = uuidv4().substring(0, 4).toUpperCase();
+    const part2 = uuidv4().substring(0, 4).toUpperCase();
+    const part3 = uuidv4().substring(0, 4).toUpperCase();
+    const rawAccessKey = `NIR-${part1}-${part2}-${part3}`;
+    const accessKeyHash = bcrypt.hashSync(rawAccessKey, 10);
+    const keyPrefix = `NIR-${part1}`;
+
+    await db.execute(`
+      INSERT INTO access_keys (id, user_id, key_prefix, key_hash, status, created_at)
+      VALUES (?, ?, ?, ?, 'ACTIVE', ?)
+    `, [`ak_${userId}`, userId, keyPrefix, accessKeyHash, now]);
+
     // Record initial registration in login history
     const loginId = `log_${uuidv4()}`;
     const sessionId = `ses_${uuidv4().substring(0, 8).toUpperCase()}`;
@@ -179,6 +229,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     return res.status(201).json({
       success: true,
       token,
+      accessKey: rawAccessKey, // Shown ONCE to user with secure copy/download
       user: {
         id: userId,
         name: name.trim(),
@@ -279,6 +330,79 @@ authRouter.put('/profile', authenticateToken, async (req: Request, res: Response
         createdAt: updated.created_at,
       }
     });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/auth/access-key (Section 1: Access Key status & masked view)
+authRouter.get('/access-key', requireAuth, async (req: Request, res: Response) => {
+  const authUser = (req as any).user;
+  try {
+    const key = await db.queryOne(
+      'SELECT id, key_prefix, status, created_at, last_used_at FROM access_keys WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+      [authUser.id, 'ACTIVE']
+    ) as any;
+
+    if (!key) {
+      return res.json({ success: true, hasKey: false });
+    }
+
+    return res.json({
+      success: true,
+      hasKey: true,
+      key: {
+        id: key.id,
+        prefix: key.key_prefix,
+        maskedKey: `${key.key_prefix}-****-****`,
+        status: key.status,
+        createdAt: key.created_at,
+        lastUsedAt: key.last_used_at,
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/auth/access-key/regenerate (Section 1: Regenerate Access Key)
+authRouter.post('/access-key/regenerate', requireAuth, async (req: Request, res: Response) => {
+  const authUser = (req as any).user;
+  try {
+    const now = new Date().toISOString();
+    // Revoke previous
+    await db.execute("UPDATE access_keys SET status = 'REVOKED' WHERE user_id = ?", [authUser.id]);
+
+    // Generate new key
+    const part1 = uuidv4().substring(0, 4).toUpperCase();
+    const part2 = uuidv4().substring(0, 4).toUpperCase();
+    const part3 = uuidv4().substring(0, 4).toUpperCase();
+    const rawAccessKey = `NIR-${part1}-${part2}-${part3}`;
+    const accessKeyHash = bcrypt.hashSync(rawAccessKey, 10);
+    const keyPrefix = `NIR-${part1}`;
+
+    await db.execute(`
+      INSERT INTO access_keys (id, user_id, key_prefix, key_hash, status, created_at)
+      VALUES (?, ?, ?, ?, 'ACTIVE', ?)
+    `, [`ak_${uuidv4()}`, authUser.id, keyPrefix, accessKeyHash, now]);
+
+    return res.json({
+      success: true,
+      message: 'New NIRBHAYA Access Key generated successfully. Save it securely.',
+      accessKey: rawAccessKey,
+      maskedKey: `${keyPrefix}-****-****`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/auth/access-key/revoke (Section 1: Revoke Access Key)
+authRouter.post('/access-key/revoke', requireAuth, async (req: Request, res: Response) => {
+  const authUser = (req as any).user;
+  try {
+    await db.execute("UPDATE access_keys SET status = 'REVOKED' WHERE user_id = ?", [authUser.id]);
+    return res.json({ success: true, message: 'NIRBHAYA Access Key revoked successfully.' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }

@@ -9,11 +9,15 @@ import {
   History,
   XCircle,
   Zap,
-  Info
+  Info,
+  Volume2,
+  VolumeX,
+  Radio
 } from 'lucide-react';
 import { RiskAssessment } from '../../types';
 import { useEmergency } from '../../context/EmergencyContext';
 import { locationService } from '../../services/locationService';
+import { audioService } from '../../services/audioService';
 import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
 
@@ -33,14 +37,42 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
   const { activeIncident } = useEmergency();
   const [countdown, setCountdown] = useState<number>(10);
   const [isGpsLost, setIsGpsLost] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(audioService.isMuted());
 
-  // Reset countdown whenever modal opens
+  // Start emergency warning audio & reset countdown whenever modal opens
   useEffect(() => {
     if (isOpen) {
       setCountdown(10);
       setIsGpsLost(!locationService.getCurrentLocation());
+      audioService.startCriticalRiskWarning(isMuted);
+    } else {
+      audioService.stopCriticalRiskWarning();
     }
+
+    return () => {
+      audioService.stopCriticalRiskWarning();
+    };
   }, [isOpen]);
+
+  const toggleMute = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    audioService.setMuted(nextMuted);
+    if (!nextMuted && isOpen) {
+      audioService.startCriticalRiskWarning(false);
+    }
+  };
+
+  const handleCancel = () => {
+    audioService.stopCriticalRiskWarning();
+    onCancel();
+  };
+
+  const handleConfirmSos = () => {
+    audioService.stopCriticalRiskWarning();
+    audioService.playSosActivatedSound();
+    onConfirmSos();
+  };
 
   // Monitor live GPS during countdown (Rule 7: False Alarm Protection)
   useEffect(() => {
@@ -61,18 +93,18 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
   useEffect(() => {
     if (!isOpen || isGpsLost) return;
 
-    // If an incident is already active, close warning immediately (Rule 6: Prevent Duplicate SOS)
+    // If an incident is already active, close warning immediately
     if (
       activeIncident.id !== 'NG-STANDBY' &&
       activeIncident.status !== 'RESOLVED'
     ) {
-      onCancel();
+      handleCancel();
       return;
     }
 
     if (countdown <= 0) {
       // Countdown expired: Auto-trigger SOS
-      onConfirmSos();
+      handleConfirmSos();
       return;
     }
 
@@ -85,71 +117,106 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
 
   if (!isOpen || !assessment) return null;
 
+  const currentGps = locationService.getCurrentLocation();
+  const gpsLabel = currentGps ? `GPS VERIFIED (±${Math.round(currentGps.accuracy)}m)` : 'GPS SEARCHING';
+
   const factors = assessment.factors;
   const descriptions = assessment.factorDescriptions || {};
   const confidence = assessment.confidence || 85;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-navy-950 border border-red-500/50 rounded-3xl p-6 sm:p-8 shadow-[0_0_50px_rgba(239,68,68,0.25)] z-10 text-white space-y-6">
-        {/* Top Header */}
+      <div className="relative w-full max-w-lg bg-navy-950 border border-red-500/50 rounded-3xl p-6 sm:p-8 shadow-[0_0_60px_rgba(239,68,68,0.35)] z-10 text-white space-y-6">
+        
+        {/* Top Status & Audio Control Bar */}
+        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2.5 w-2.5 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+            </span>
+            <span className="text-xs font-bold tracking-wider uppercase text-red-400">
+              {gpsLabel}
+            </span>
+          </div>
+
+          <button
+            onClick={toggleMute}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-300 transition-colors"
+            title={isMuted ? 'Unmute Emergency Siren' : 'Mute Emergency Siren'}
+          >
+            {isMuted ? (
+              <>
+                <VolumeX className="w-3.5 h-3.5 text-amber-400" />
+                <span>MUTED</span>
+              </>
+            ) : (
+              <>
+                <Volume2 className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+                <span className="text-red-400">SIREN ON</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Top Header & Visual Badge */}
         <div className="text-center space-y-2">
-          <div className="inline-flex p-3 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-400 mb-1 animate-pulse">
-            <ShieldAlert className="w-8 h-8" />
+          <div className="relative inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-br from-red-600/30 to-red-950/80 border border-red-500/50 text-red-400 mb-1 shadow-glow-red">
+            <ShieldAlert className="w-10 h-10 animate-pulse" />
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-white tracking-wide uppercase">
-            ⚠️ CRITICAL SAFETY RISK DETECTED
+            CRITICAL RISK DETECTED
           </h2>
           <p className="text-xs text-slate-300">
-            Your current environment has exceeded verified safety thresholds.
+            Elevated environmental threat factors detected. Automatic emergency dispatch armed.
           </p>
         </div>
 
         {/* Central Score Card & Countdown Ring */}
-        <div className="p-5 rounded-2xl bg-navy-900/80 border border-white/10 flex flex-col items-center justify-center text-center space-y-3">
+        <div className="p-5 rounded-2xl bg-navy-900/80 border border-red-500/20 flex flex-col items-center justify-center text-center space-y-3">
           <div className="flex items-center gap-3">
             <span className="text-4xl font-extrabold text-red-400 font-mono tracking-tight">
               {assessment.score}
               <span className="text-lg text-slate-400 font-normal"> / 100</span>
             </span>
             <Badge variant="critical" size="md">
-              CRITICAL THREAT
+              CRITICAL SAFETY STATE
             </Badge>
           </div>
 
           {/* Large Countdown */}
           {!isGpsLost ? (
             <div className="space-y-1">
-              <span className="text-xs text-slate-400 block">
-                Automatic emergency protection will activate in:
+              <span className="text-xs text-slate-400 block font-medium">
+                Automatic emergency SOS dispatch in:
               </span>
               <div className="text-4xl sm:text-5xl font-black text-amber-400 font-mono tracking-widest animate-pulse">
-                00:{countdown.toString().padStart(2, '0')}
+                {countdown}s
               </div>
             </div>
           ) : (
             <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
-              <span className="font-semibold block">GPS signal lost. Automatic SOS paused.</span>
+              <span className="font-semibold block">GPS acquiring. Automatic countdown paused.</span>
               <span className="text-[11px] text-slate-400">
                 You may still trigger SOS manually below.
               </span>
             </div>
           )}
 
-          {/* Data Confidence Indicator (Rule 1 & 8) */}
-          <div className="pt-2 flex items-center gap-2 text-[11px] text-slate-400 font-mono">
-            <span>Data Confidence:</span>
+          {/* Data Confidence Indicator */}
+          <div className="pt-1 flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+            <span>Confidence:</span>
             <span className="text-cyan-400 font-bold">{confidence}%</span>
             <span className="text-slate-500">•</span>
-            <span>Real-time Multi-factor Analysis</span>
+            <span>Live Multi-factor Analysis</span>
           </div>
         </div>
 
-        {/* Transparent Factor Breakdown (Rule 8) */}
+        {/* Transparent Factor Breakdown with Truthful Badges */}
         <div className="space-y-2 text-xs">
           <div className="flex items-center justify-between text-slate-400 font-semibold uppercase text-[10px] tracking-wider px-1">
             <span>Safety Factor Breakdown</span>
-            <span>Weighted Score</span>
+            <span>Weight & Score</span>
           </div>
 
           <div className="grid grid-cols-1 gap-1.5">
@@ -157,7 +224,10 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
               <div className="flex items-center gap-2">
                 <MapPin className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                 <div>
-                  <span className="text-white font-medium block">Location Profile (30%)</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-white font-medium">Location Profile (30%)</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono font-semibold">MODEL-BASED</span>
+                  </div>
                   <span className="text-[10px] text-slate-400">
                     {descriptions.location || 'Data unavailable'}
                   </span>
@@ -170,7 +240,10 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
               <div className="flex items-center gap-2">
                 <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                 <div>
-                  <span className="text-white font-medium block">Time Window (15%)</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-white font-medium">Time Window (15%)</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-mono font-semibold">CALCULATED</span>
+                  </div>
                   <span className="text-[10px] text-slate-400">
                     {descriptions.time || 'Daytime Window'}
                   </span>
@@ -183,7 +256,10 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
               <div className="flex items-center gap-2">
                 <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 <div>
-                  <span className="text-white font-medium block">Pedestrian Density (15%)</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-white font-medium">Crowd Density (15%)</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-semibold">ESTIMATED</span>
+                  </div>
                   <span className="text-[10px] text-slate-400">
                     {descriptions.crowd || 'Data unavailable'}
                   </span>
@@ -196,9 +272,12 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
               <div className="flex items-center gap-2">
                 <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <div>
-                  <span className="text-white font-medium block">Street Lighting (15%)</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-white font-medium">Street Lighting (15%)</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-semibold">ESTIMATED</span>
+                  </div>
                   <span className="text-[10px] text-slate-400">
-                    {descriptions.lighting || 'Solar Day Illumination'}
+                    {descriptions.lighting || 'Solar Illumination Model'}
                   </span>
                 </div>
               </div>
@@ -209,7 +288,10 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
               <div className="flex items-center gap-2">
                 <History className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                 <div>
-                  <span className="text-white font-medium block">Historical Crime Index (25%)</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-white font-medium">Historical Risk (25%)</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono font-semibold">BASELINE</span>
+                  </div>
                   <span className="text-[10px] text-slate-400">
                     {descriptions.historical || 'Precinct Records Baseline'}
                   </span>
@@ -220,17 +302,12 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
           </div>
         </div>
 
-        {/* Disclaimer (Rule 17) */}
-        <p className="text-[10px] text-slate-400 text-center italic leading-tight">
-          Risk score is an experimental AI safety indicator calculated from available environmental signals and does not guarantee safety or danger.
-        </p>
-
         {/* Action Buttons: CANCEL vs TRIGGER SOS NOW */}
         <div className="grid grid-cols-2 gap-3 pt-2">
           <Button
             variant="secondary"
             size="lg"
-            onClick={onCancel}
+            onClick={handleCancel}
             leftIcon={<XCircle className="w-5 h-5 text-slate-400" />}
             className="w-full text-slate-200 border-white/20 hover:bg-white/10"
           >
@@ -240,7 +317,7 @@ export const CriticalRiskWarningModal: React.FC<CriticalRiskWarningModalProps> =
           <Button
             variant="danger"
             size="lg"
-            onClick={onConfirmSos}
+            onClick={handleConfirmSos}
             leftIcon={<Zap className="w-5 h-5 text-white" />}
             className="w-full bg-red-600 hover:bg-red-500 font-black shadow-glow-red text-white"
           >

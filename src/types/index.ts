@@ -136,7 +136,7 @@ export interface EmergencyIncident {
   status: IncidentStatus;
   userStatus: string;
   elapsedSeconds: number;
-  responder: Responder;
+  responder?: Responder;
   evidenceItems: EvidenceItem[];
   timeline: {
     id: string;
@@ -189,6 +189,6 @@ export interface AppSettings {
   autoEmergencyProtection: boolean; // Automatic SOS when critical risk countdown expires
   routeDeviationProtection: boolean; // Route deviation alert & escalation
   emergencyCountdownSeconds: number; // Duration of countdown (10s default)
-  demoMode: boolean;
+  demoMode?: boolean;
   theme: 'dark' | 'light';
 }

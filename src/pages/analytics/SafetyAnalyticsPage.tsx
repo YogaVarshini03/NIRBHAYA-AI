@@ -29,8 +29,6 @@ import { Badge } from '../../components/common/Badge';
 
 export const SafetyAnalyticsPage: React.FC = () => {
   const [liveData, setLiveData] = React.useState<any>(null);
-  const fallbackMetrics = analyticsService.getSystemMetrics();
-  const riskDist = analyticsService.getRiskDistribution();
   const timeDist = analyticsService.getIncidentsByTimeOfDay();
   const routeDist = analyticsService.getRoutePreferenceDistribution();
 
@@ -42,10 +40,29 @@ export const SafetyAnalyticsPage: React.FC = () => {
     });
   }, []);
 
-  const totalChecks = liveData ? liveData.metrics.totalSafetyChecks : fallbackMetrics.totalSafetyChecks;
-  const totalIncidents = liveData ? liveData.metrics.totalEmergencyIncidents : fallbackMetrics.emergencyDrills;
-  const avgResponse = liveData ? liveData.metrics.avgResponseTimeDisplay : fallbackMetrics.avgResponseSimulation;
-  const resolvedCount = liveData ? liveData.metrics.resolvedIncidents : 42;
+  const totalChecks = liveData?.metrics?.totalSafetyChecks ?? 0;
+  const totalIncidents = liveData?.metrics?.totalEmergencyIncidents ?? 0;
+  const avgResponse = liveData?.metrics?.avgResponseTimeDisplay ?? 'Insufficient data';
+  const resolvedCount = liveData?.metrics?.resolvedIncidents ?? 0;
+  const dispatchedAlerts = liveData?.metrics?.dispatchedAlerts ?? 0;
+  const sampleCount = totalChecks + totalIncidents;
+
+  const riskDist = React.useMemo(() => {
+    if (liveData?.riskDistribution) {
+      return [
+        { name: 'Low Risk', value: liveData.riskDistribution.LOW || 0, color: '#10B981' },
+        { name: 'Moderate Risk', value: liveData.riskDistribution.MODERATE || 0, color: '#F59E0B' },
+        { name: 'High Risk', value: liveData.riskDistribution.HIGH || 0, color: '#F97316' },
+        { name: 'Critical Risk', value: liveData.riskDistribution.CRITICAL || 0, color: '#EF4444' },
+      ];
+    }
+    return [
+      { name: 'Low Risk', value: 1, color: '#10B981' },
+      { name: 'Moderate Risk', value: 0, color: '#F59E0B' },
+      { name: 'High Risk', value: 0, color: '#F97316' },
+      { name: 'Critical Risk', value: 0, color: '#EF4444' },
+    ];
+  }, [liveData]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -104,7 +121,7 @@ export const SafetyAnalyticsPage: React.FC = () => {
             <Navigation className="w-4 h-4 text-blue-400" />
           </div>
           <div className="text-3xl font-black text-blue-300 font-mono">
-            {liveData ? liveData.metrics.dispatchedAlerts : fallbackMetrics.safeRoutesGenerated}
+            {dispatchedAlerts}
           </div>
           <p className="text-xs text-slate-400 mt-1">SMS & Email gateway alerts</p>
         </Card>
@@ -117,7 +134,9 @@ export const SafetyAnalyticsPage: React.FC = () => {
         <Card variant="glass" className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold text-white">Aggregated Risk Distribution</h3>
-            <span className="text-xs text-slate-400 font-mono">1,284 Telemetry Samples</span>
+            <span className="text-xs text-slate-400 font-mono">
+              {sampleCount > 0 ? `${sampleCount} Stored Samples` : 'Insufficient Data'}
+            </span>
           </div>
 
           <div className="h-64 w-full">

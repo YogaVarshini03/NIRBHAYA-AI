@@ -76,7 +76,7 @@ export const SafetyHistoryPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem('nirbhaya_token');
+      const token = localStorage.getItem('nirbhaya_auth_token') || localStorage.getItem('nirbhaya_token');
       const headers: Record<string, string> = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;

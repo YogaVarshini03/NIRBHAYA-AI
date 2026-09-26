@@ -116,19 +116,27 @@ export const IncidentDetailPage: React.FC = () => {
           <div className="space-y-2 text-xs">
             <div className="flex justify-between py-1.5 border-b border-white/5">
               <span className="text-slate-400">Responder:</span>
-              <span className="font-semibold text-slate-200">{activeIncident.responder.name}</span>
+              <span className="font-semibold text-slate-200">
+                {activeIncident.responder?.name || 'Awaiting Unit Assignment'}
+              </span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-white/5">
               <span className="text-slate-400">Badge & Call Sign:</span>
-              <span className="font-mono text-cyan-300">{activeIncident.responder.badgeNumber}</span>
+              <span className="font-mono text-cyan-300">
+                {activeIncident.responder?.badgeNumber || 'UNASSIGNED'}
+              </span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-white/5">
               <span className="text-slate-400">Intercept Distance:</span>
-              <span className="font-mono font-bold text-white">{activeIncident.responder.distanceKm} km</span>
+              <span className="font-mono font-bold text-white">
+                {activeIncident.responder?.distanceKm !== undefined ? `${activeIncident.responder.distanceKm} km` : '--'}
+              </span>
             </div>
             <div className="flex justify-between py-1.5">
               <span className="text-slate-400">Current Status:</span>
-              <span className="text-emerald-400 font-semibold">{activeIncident.responder.status}</span>
+              <span className="text-emerald-400 font-semibold">
+                {activeIncident.responder?.status || 'STANDBY'}
+              </span>
             </div>
           </div>
         </Card>
