@@ -7,20 +7,18 @@ import { v4 as uuidv4 } from 'uuid';
 export const authRouter = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'nirbhaya_super_secure_jwt_secret_2026';
 
-// Middleware to authenticate JWT token (lenient fallback for demo compatibility)
+// Middleware to authenticate JWT token
 export function authenticateToken(req: Request, res: Response, next: Function) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    (req as any).user = { id: 'usr_ananya_01', email: 'demo@nirbhaya.ai', role: 'USER' };
-    return next();
+    return res.status(401).json({ success: false, error: 'Authentication required. Authorization header missing.' });
   }
 
   jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
     if (err) {
-      (req as any).user = { id: 'usr_ananya_01', email: 'demo@nirbhaya.ai', role: 'USER' };
-      return next();
+      return res.status(401).json({ success: false, error: 'Invalid or expired session token.' });
     }
     (req as any).user = user;
     next();
@@ -74,8 +72,8 @@ authRouter.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, error: 'Invalid email or password.' });
     }
 
-    const isValid = bcrypt.compareSync(password, user.password_hash);
-    if (!isValid && password !== 'demo1234' && password !== '••••••••••••') {
+    const isValid = Boolean(user.password_hash && typeof user.password_hash === 'string' && bcrypt.compareSync(password, user.password_hash));
+    if (!isValid) {
       return res.status(401).json({ success: false, error: 'Invalid email or password.' });
     }
 

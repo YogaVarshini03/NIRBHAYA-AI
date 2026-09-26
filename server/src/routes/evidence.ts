@@ -113,13 +113,13 @@ export async function requireEvidenceVaultAuth(req: Request, res: Response, next
       return res.status(403).json({ success: false, error: 'Invalid evidence vault session token.', requiresVaultAuth: true });
     }
 
-    // Check if session was revoked in database
-    const session = await db.queryOne<{ id: string; revoked_at: string | null }>(
-      'SELECT id, revoked_at FROM evidence_sessions WHERE id = ? AND session_token = ?',
-      [decoded.sessionId, vaultToken]
+    // Check if session exists and is active in database (queried by primary key id)
+    const session = await db.queryOne<{ id: string; user_id: string; revoked_at: string | null }>(
+      'SELECT id, user_id, revoked_at FROM evidence_sessions WHERE id = ?',
+      [decoded.sessionId]
     );
 
-    if (!session || session.revoked_at) {
+    if (!session || session.revoked_at || session.user_id !== user.id) {
       return res.status(403).json({ success: false, error: 'Evidence session has been locked or revoked.', requiresVaultAuth: true });
     }
 
@@ -138,6 +138,9 @@ export async function requireEvidenceVaultAuth(req: Request, res: Response, next
 // ACCESS KEY VERIFICATION & SESSION MANAGEMENT
 // ----------------------------------------------------
 
+// In-memory rate limiting map for brute force protection (resilient across SQLite and MySQL)
+const failedAttemptMap = new Map<string, { count: number; lockedUntil: number }>();
+
 // POST /api/evidence/access/verify - Verify NIRBHAYA Access Key & Issue Short-Lived Vault Session
 evidenceRouter.post('/access/verify', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = (req as any).user;
@@ -149,8 +152,21 @@ evidenceRouter.post('/access/verify', requireAuth, async (req: Request, res: Res
   }
 
   try {
+    // 1. Check brute force lockout
+    const userAttempts = failedAttemptMap.get(user.id);
+    const nowMs = Date.now();
+    if (userAttempts && userAttempts.lockedUntil > nowMs) {
+      const waitMin = Math.ceil((userAttempts.lockedUntil - nowMs) / 60000);
+      res.status(429).json({
+        success: false,
+        error: `Too many failed attempts. Evidence vault is temporarily locked for ${waitMin} more minute(s). Try again later.`
+      });
+      return;
+    }
+
+    // 2. Fetch user's active key record using standard schema columns only
     const keyRow = await db.queryOne<any>(
-      'SELECT * FROM access_keys WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+      'SELECT id, user_id, key_prefix, key_hash, status, created_at, last_used_at FROM access_keys WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
       [user.id, 'ACTIVE']
     );
 
@@ -159,36 +175,25 @@ evidenceRouter.post('/access/verify', requireAuth, async (req: Request, res: Res
       return;
     }
 
-    const now = new Date();
+    const inputKey = accessKey.trim().toUpperCase();
+    let isMatch = false;
 
-    // Check brute force lockout
-    if (keyRow.locked_until && new Date(keyRow.locked_until) > now) {
-      res.status(429).json({
-        success: false,
-        error: 'Too many failed attempts. Evidence vault is temporarily locked. Try again later.'
-      });
-      return;
+    // 3. Verify input key against stored bcrypt hash
+    if (keyRow.key_hash && typeof keyRow.key_hash === 'string' && keyRow.key_hash.startsWith('$2')) {
+      try {
+        isMatch = bcrypt.compareSync(inputKey, keyRow.key_hash);
+      } catch (bcryptErr) {
+        console.warn('[Evidence Access] bcrypt compare error:', bcryptErr);
+        isMatch = false;
+      }
     }
 
-    const inputKey = accessKey.trim().toUpperCase();
-    const isMatch = bcrypt.compareSync(inputKey, keyRow.key_hash) ||
-      inputKey === 'NIR-7F42-SAFE-2026' ||
-      inputKey === 'NIR-1042-RESP-2026' ||
-      inputKey === 'NIR-9001-ADMN-2026';
-
     if (!isMatch) {
-      const failedAttempts = (keyRow.failed_attempts || 0) + 1;
-      let lockedUntil: string | null = null;
-      if (failedAttempts >= 5) {
-        lockedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min lockout
-      }
-
-      await db.execute(
-        'UPDATE access_keys SET failed_attempts = ?, locked_until = ? WHERE id = ?',
-        [failedAttempts, lockedUntil, keyRow.id]
-      );
-
-      if (failedAttempts >= 5) {
+      const current = failedAttemptMap.get(user.id) || { count: 0, lockedUntil: 0 };
+      current.count += 1;
+      if (current.count >= 5) {
+        current.lockedUntil = Date.now() + 15 * 60 * 1000; // 15 minute lockout
+        failedAttemptMap.set(user.id, current);
         res.status(429).json({
           success: false,
           error: 'Too many failed attempts. Evidence vault locked for 15 minutes.'
@@ -196,6 +201,7 @@ evidenceRouter.post('/access/verify', requireAuth, async (req: Request, res: Res
         return;
       }
 
+      failedAttemptMap.set(user.id, current);
       res.status(401).json({
         success: false,
         error: 'Invalid NIRBHAYA Access Key.'
@@ -204,12 +210,20 @@ evidenceRouter.post('/access/verify', requireAuth, async (req: Request, res: Res
     }
 
     // Reset failed attempts upon successful match
-    await db.execute(
-      'UPDATE access_keys SET failed_attempts = 0, locked_until = NULL, last_used_at = ? WHERE id = ?',
-      [now.toISOString(), keyRow.id]
-    );
+    failedAttemptMap.delete(user.id);
 
-    // Create 30-minute Evidence Vault Session
+    // Safely update last_used_at on access_keys table (standard column)
+    const nowIso = new Date().toISOString();
+    try {
+      await db.execute(
+        'UPDATE access_keys SET last_used_at = ? WHERE id = ?',
+        [nowIso, keyRow.id]
+      );
+    } catch (updateErr) {
+      console.warn('[Evidence Access] Could not update last_used_at on access_keys:', updateErr);
+    }
+
+    // 4. Create 30-minute Evidence Vault Session
     const sessionId = `evses_${uuidv4()}`;
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     const vaultToken = jwt.sign(
@@ -221,7 +235,7 @@ evidenceRouter.post('/access/verify', requireAuth, async (req: Request, res: Res
     await db.execute(`
       INSERT INTO evidence_sessions (id, user_id, session_token, created_at, expires_at, revoked_at)
       VALUES (?, ?, ?, ?, ?, NULL)
-    `, [sessionId, user.id, vaultToken, now.toISOString(), expiresAt]);
+    `, [sessionId, user.id, vaultToken, nowIso, expiresAt]);
 
     res.json({
       success: true,
@@ -232,7 +246,7 @@ evidenceRouter.post('/access/verify', requireAuth, async (req: Request, res: Res
     });
   } catch (err: any) {
     console.error('[Evidence Access] Error verifying key:', err);
-    res.status(500).json({ success: false, error: 'Server error verifying access key.' });
+    res.status(500).json({ success: false, error: err.message || 'Server error verifying access key.' });
   }
 });
 
@@ -243,9 +257,21 @@ evidenceRouter.post('/access/revoke', requireAuth, async (req: Request, res: Res
 
   if (vaultToken) {
     try {
+      let decodedSessionId: string | null = null;
+      try {
+        const decoded = jwt.verify(vaultToken, JWT_SECRET) as any;
+        decodedSessionId = decoded.sessionId;
+      } catch {}
+
       const now = new Date().toISOString();
-      await db.execute('UPDATE evidence_sessions SET revoked_at = ? WHERE session_token = ? AND user_id = ?', [now, vaultToken, user.id]);
-    } catch {}
+      if (decodedSessionId) {
+        await db.execute('UPDATE evidence_sessions SET revoked_at = ? WHERE id = ? AND user_id = ?', [now, decodedSessionId, user.id]);
+      } else {
+        await db.execute('UPDATE evidence_sessions SET revoked_at = ? WHERE session_token = ? AND user_id = ?', [now, vaultToken, user.id]);
+      }
+    } catch (err) {
+      console.warn('[Evidence Access Revoke] Error revoking session:', err);
+    }
   }
 
   res.json({ success: true, message: 'Evidence Vault session locked successfully.' });

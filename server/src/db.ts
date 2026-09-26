@@ -360,6 +360,14 @@ async function initMySQLTables() {
   for (const tableSql of tables) {
     await mysqlPool.query(tableSql);
   }
+
+  // Safe migrations for existing MySQL tables
+  try { await mysqlPool.query("ALTER TABLE evidence_records ADD COLUMN user_name VARCHAR(255);"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE evidence_records ADD COLUMN latitude DOUBLE;"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE evidence_records ADD COLUMN longitude DOUBLE;"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE evidence_records ADD COLUMN gps_accuracy DOUBLE;"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE evidence_records ADD COLUMN captured_at VARCHAR(64);"); } catch {}
+
   console.log('[Database] All MySQL tables verified & initialized.');
 }
 

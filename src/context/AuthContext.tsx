@@ -31,8 +31,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(() => {
     if (typeof window !== 'undefined') {
       try {
+        const storedToken = localStorage.getItem(TOKEN_KEY);
         const stored = localStorage.getItem(USER_KEY);
-        return stored ? JSON.parse(stored) : null;
+        // Only initialize user if token also exists
+        return (stored && storedToken) ? JSON.parse(stored) : null;
       } catch {
         return null;
       }
@@ -42,24 +44,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const { showToast } = useToast();
 
+  const clearAuthSession = () => {
+    setToken(null);
+    setUser(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+    }
+  };
+
   // Validate or restore session from backend on mount
   useEffect(() => {
     const initAuth = async () => {
-      const activeToken = token || localStorage.getItem(TOKEN_KEY);
+      const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null);
       if (!activeToken) {
-        // Fallback default demo identity if none logged in yet
-        if (!user) {
-          const defaultUser: User = {
-            id: 'USR-7F42A91C',
-            name: 'Abhishek K',
-            email: 'demo@nirbhaya.ai',
-            phone: '+91 93455 96322',
-            role: 'USER',
-            createdAt: '2026-01-15T09:00:00Z',
-          };
-          setUser(defaultUser);
-          localStorage.setItem(USER_KEY, JSON.stringify(defaultUser));
-        }
+        // Unauthenticated: clean up any stale user state
+        clearAuthSession();
         return;
       }
 
@@ -74,11 +74,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const data = await res.json();
           if (data.success && data.user) {
             setUser(data.user);
+            setToken(activeToken);
             localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+          } else {
+            clearAuthSession();
           }
-        } else {
-          // Token invalid or expired
-          console.warn('[AuthContext] Session token expired or invalid.');
+        } else if (res.status === 401 || res.status === 403) {
+          // Token is invalid or expired: clear only auth token and redirect to login
+          console.warn('[AuthContext] Session token expired or invalid (HTTP 401/403). Clearing stale auth state.');
+          clearAuthSession();
         }
       } catch (err) {
         console.warn('[AuthContext] Could not verify backend auth session:', err);
@@ -105,6 +109,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const data = await res.json();
 
       if (!res.ok || !data.success) {
+        clearAuthSession();
         const errMsg = data.error || 'Authentication failed. Please verify credentials.';
         return { success: false, error: errMsg };
       }
@@ -118,6 +123,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: true, user: data.user };
     } catch (err: any) {
       console.error('[AuthContext] Login error:', err);
+      clearAuthSession();
       const errMsg = err?.message || 'Network error connecting to authentication server.';
       return { success: false, error: errMsg };
     }
@@ -170,18 +176,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Authenticate demo user against real backend with standard email and password
     const res = await loginWithCredentials('demo@nirbhaya.ai', 'demo1234');
     if (!res.success) {
-      // Fallback local session if offline
-      const demoUser: User = {
-        id: 'USR-7F42A91C',
-        name: 'Abhishek K',
-        email: 'demo@nirbhaya.ai',
-        phone: '+91 93455 96322',
-        role: 'USER',
-        createdAt: '2026-01-15T09:00:00Z',
-      };
-      setUser(demoUser);
-      localStorage.setItem(USER_KEY, JSON.stringify(demoUser));
-      showToast('Authenticated as Abhishek K (USR-7F42A91C)', 'success');
+      showToast(res.error || 'Could not authenticate demo user against server.', 'error');
     }
   };
 
@@ -215,13 +210,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = (): void => {
-    setToken(null);
-    setUser(null);
+    clearAuthSession();
     evidenceService.lockVault();
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-    }
     showToast('Signed out of safety session.', 'info');
   };
 
@@ -230,7 +220,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       value={{
         user,
         token,
-        isAuthenticated: !!user,
+        isAuthenticated: Boolean(user && token),
         loginAsDemoUser,
         loginWithCredentials,
         registerUser,

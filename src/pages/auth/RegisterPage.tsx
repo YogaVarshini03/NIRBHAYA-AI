@@ -67,7 +67,7 @@ Email: ${formData.email}
 NIRBHAYA Access Key: ${generatedKey}
 Created: ${new Date().toISOString()}
 
-IMPORTANT: Keep this key secure. You need it along with your password to log in.
+IMPORTANT: Keep this key secure. You will need it to unlock your Secure Evidence Locker. Normal login requires only your email and password.
 `;
     const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
