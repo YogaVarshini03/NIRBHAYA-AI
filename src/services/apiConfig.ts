@@ -13,24 +13,33 @@ export function getApiBaseUrl(): string {
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
     const trimmed = envUrl.trim().replace(/\/$/, '');
     
-    // Check if it's a remote production backend (e.g. railway.app, custom domain)
-    if (!trimmed.includes('localhost') && !trimmed.includes('127.0.0.1')) {
+    // Ignore placeholder / unconfigured URLs
+    const isPlaceholder = 
+      trimmed.includes('your-backend') || 
+      trimmed.includes('your-app') || 
+      trimmed.includes('example.com') ||
+      trimmed.includes('<');
+
+    if (!isPlaceholder) {
+      // Check if it's a remote production backend (e.g. railway.app, custom domain)
+      if (!trimmed.includes('localhost') && !trimmed.includes('127.0.0.1')) {
+        return trimmed;
+      }
+
+      // If it points to localhost, but the app is being opened on a LAN device (phone)
+      if (typeof window !== 'undefined') {
+        const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (!isLocalHost) {
+          // In HTTPS dev mode on phone, use relative '' so Vite's SSL proxy handles it
+          if (window.location.protocol === 'https:') {
+            return '';
+          }
+          return `http://${window.location.hostname}:5000`;
+        }
+      }
+
       return trimmed;
     }
-
-    // If it points to localhost, but the app is being opened on a LAN device (phone)
-    if (typeof window !== 'undefined') {
-      const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      if (!isLocalHost) {
-        // In HTTPS dev mode on phone, use relative '' so Vite's SSL proxy handles it
-        if (window.location.protocol === 'https:') {
-          return '';
-        }
-        return `http://${window.location.hostname}:5000`;
-      }
-    }
-
-    return trimmed;
   }
 
   // 2. Browser runtime fallback
@@ -69,7 +78,13 @@ export function getWebSocketUrl(): string {
   // 1. If explicitly configured
   if (envWs && typeof envWs === 'string' && envWs.trim() !== '') {
     const trimmed = envWs.trim();
-    if (!trimmed.includes('localhost') && !trimmed.includes('127.0.0.1')) {
+    const isPlaceholder = 
+      trimmed.includes('your-backend') || 
+      trimmed.includes('your-app') || 
+      trimmed.includes('example.com') ||
+      trimmed.includes('<');
+
+    if (!isPlaceholder && !trimmed.includes('localhost') && !trimmed.includes('127.0.0.1')) {
       return trimmed;
     }
   }

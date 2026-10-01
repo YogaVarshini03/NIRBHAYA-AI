@@ -184,14 +184,30 @@ export const LiveTrackingPage: React.FC = () => {
             Real-time coordinates synced with rapid patrol unit and certified emergency safe sanctuaries.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const lat = currentGps?.latitude || 0;
+              const lng = currentGps?.longitude || 0;
+              const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
+              const text = `🚨 LIVE GPS SOS ALERT: Tracking incident ${activeIncident.id} at ${currentGps?.address || `${lat}, ${lng}`}. Live Radar: ${window.location.href} | Maps: ${mapsUrl}`;
+              window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+              showToast('Dispatched WhatsApp Live Radar Link!', 'info');
+            }}
+            className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40"
+            leftIcon={<Share2 className="w-4 h-4 text-emerald-400" />}
+          >
+            WhatsApp SOS
+          </Button>
           <Button
             variant="secondary"
             size="sm"
             onClick={handleShareLink}
             leftIcon={<Share2 className="w-4 h-4" />}
           >
-            Share Tracking Link
+            Copy Link
           </Button>
           <Button
             variant="primary"
@@ -374,15 +390,15 @@ export const LiveTrackingPage: React.FC = () => {
 
       {/* Main Full-Size Tracking Map */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-400 gap-2 bg-navy-950/60 p-3 rounded-xl border border-white/5">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-            <span className="font-semibold text-slate-200">
-              {currentGps ? 'High-Frequency GPS Stream Active' : 'Waiting for GPS Hardware Fix...'}
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+            <span className="font-semibold text-white truncate">
+              {currentGps?.address || (currentGps ? 'High-Frequency GPS Stream Active' : 'Waiting for GPS Hardware Fix...')}
             </span>
           </div>
-          <span className="font-mono">
-            {currentGps ? `Fix: ${currentGps.latitude.toFixed(5)}, ${currentGps.longitude.toFixed(5)}` : 'No fix'}
+          <span className="font-mono text-cyan-300 shrink-0">
+            {currentGps ? `GPS: ${currentGps.latitude.toFixed(5)}, ${currentGps.longitude.toFixed(5)} (±${currentGps.accuracy}m)` : 'No fix'}
           </span>
         </div>
 

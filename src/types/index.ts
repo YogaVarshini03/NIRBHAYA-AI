@@ -22,6 +22,8 @@ export interface Contact {
   phone: string;
   online: boolean;
   notificationPreference: 'SMS & App' | 'Push Only' | 'Call Priority' | 'All Channels';
+  isEmergencyContact?: boolean;
+  isPrimary?: boolean;
 }
 
 export interface RiskFactors {

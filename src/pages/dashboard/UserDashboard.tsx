@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ShieldCheck,
@@ -14,7 +14,13 @@ import {
   AlertTriangle,
   Sparkles,
   ChevronRight,
-  Info
+  Info,
+  Volume2,
+  VolumeX,
+  Flashlight,
+  MessageSquare,
+  PhoneCall,
+  Share2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { riskService } from '../../services/riskService';
@@ -28,17 +34,20 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 
 import { locationService, GPSLocation, LocationStatus } from '../../services/locationService';
+import { hardwareSafetyService } from '../../services/hardwareSafetyService';
 
 import { useEmergency } from '../../context/EmergencyContext';
 import { riskMonitoringService } from '../../services/riskMonitoringService';
 import { routeDeviationService } from '../../services/routeDeviationService';
 import { storageService, StorageKeys } from '../../services/storageService';
 import { AppSettings, RiskAssessment, RouteDeviationState } from '../../types';
+import { useToast } from '../../context/ToastContext';
 
 export const UserDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { activeIncident, triggerCriticalTest, triggerDeviationTest } = useEmergency();
+  const { showToast } = useToast();
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessment>(() => riskMonitoringService.getStatus().lastAssessment);
   const [deviationState, setDeviationState] = useState<RouteDeviationState>(() => routeDeviationService.getState());
   const [secondsAgo, setSecondsAgo] = useState<number>(0);
@@ -47,6 +56,9 @@ export const UserDashboard: React.FC = () => {
 
   const [gpsLoc, setGpsLoc] = useState<GPSLocation | null>(() => locationService.getCurrentLocation());
   const [gpsStatus, setGpsStatus] = useState<LocationStatus>(() => locationService.getStatus());
+  const [currentAddress, setCurrentAddress] = useState<string>(() => locationService.getCachedAddress());
+  const [hardwareState, setHardwareState] = useState(() => hardwareSafetyService.getState());
+
   const [settings] = useState<AppSettings>(() =>
     storageService.getItem<AppSettings>(StorageKeys.APP_SETTINGS, {
       autoEmergencyProtection: true,
@@ -54,11 +66,14 @@ export const UserDashboard: React.FC = () => {
     } as any)
   );
 
-  React.useEffect(() => {
+  useEffect(() => {
     locationService.startContinuousTracking();
     const unsubLoc = locationService.subscribe((loc, status) => {
       setGpsLoc(loc);
       setGpsStatus(status);
+      if (loc?.address) {
+        setCurrentAddress(loc.address);
+      }
     });
 
     const unsubRisk = riskMonitoringService.subscribe((assessment, secs) => {
@@ -70,10 +85,15 @@ export const UserDashboard: React.FC = () => {
       setDeviationState({ ...s });
     });
 
+    const unsubHardware = hardwareSafetyService.subscribe((state) => {
+      setHardwareState({ ...state });
+    });
+
     return () => {
       unsubLoc();
       unsubRisk();
       unsubDev();
+      unsubHardware();
     };
   }, []);
 
@@ -103,8 +123,31 @@ export const UserDashboard: React.FC = () => {
 
   const gpsDisplay = getGpsStatusDisplay();
 
+  const primaryContact = contacts.find((c) => c.isEmergencyContact) || contacts[0];
+  const primaryPhone = primaryContact?.phone?.replace(/\D/g, '') || '9345596322';
+
+  const handleWhatsAppQuickShare = () => {
+    const lat = gpsLoc?.latitude || 0;
+    const lng = gpsLoc?.longitude || 0;
+    const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
+    const trackingUrl = typeof window !== 'undefined' ? `${window.location.origin}/live-tracking` : 'https://nirbhaya.ai/live-tracking';
+    const text = `🚨 EMERGENCY ALERT FROM NIRBHAYA AI!\nI need assistance right now!\n📍 Real Address: ${currentAddress}\n📌 Live Maps: ${mapsUrl}\n🔴 Live Radar: ${trackingUrl}`;
+    const waUrl = `https://wa.me/${primaryPhone ? primaryPhone : ''}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+    showToast('Dispatched WhatsApp SOS with live GPS coordinates!', 'info');
+  };
+
+  const handleDirect112Call = () => {
+    window.open('tel:112', '_self');
+  };
+
   return (
     <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-300">
+      {/* Screen Strobe Flash Overlay */}
+      {hardwareState.isScreenStrobeActive && (
+        <div className="fixed inset-0 z-50 pointer-events-none bg-red-600/35 mix-blend-screen animate-ping" />
+      )}
+
       {/* Top Greeting Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.08]">
         <div>
@@ -143,7 +186,7 @@ export const UserDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ACTIVE EMERGENCY DISTRESS BANNER (Rule 15 & 24) */}
+      {/* ACTIVE EMERGENCY DISTRESS BANNER */}
       {hasActiveIncident && (
         <div className="p-5 rounded-2xl bg-gradient-to-r from-red-950/90 via-red-900/60 to-navy-950/90 border-2 border-red-500/80 shadow-[0_0_30px_rgba(239,68,68,0.3)] animate-pulse flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
@@ -257,7 +300,7 @@ export const UserDashboard: React.FC = () => {
 
       {/* Main 4-Card Hero Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        {/* CARD 1 — CURRENT SAFETY STATUS & HONEST GPS */}
+        {/* CARD 1 — CURRENT SAFETY STATUS & HONEST REVERSE-GEOCODED GPS */}
         <Card variant="glass" className="p-6 flex flex-col justify-between space-y-4">
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -267,34 +310,29 @@ export const UserDashboard: React.FC = () => {
               <span className={`w-2.5 h-2.5 rounded-full ${gpsStatus === 'LIVE_GPS' ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
             </div>
 
-            <div className="flex items-center gap-2.5 mb-2">
+            <div className="flex items-center gap-2.5 mb-1.5">
               <span className={`w-3.5 h-3.5 rounded-full ${gpsStatus === 'LIVE_GPS' ? 'bg-emerald-400 shadow-[0_0_12px_#10B981]' : 'bg-amber-400'}`} />
               <h3 className={`text-xl sm:text-2xl font-black tracking-wide uppercase ${gpsStatus === 'LIVE_GPS' ? 'text-emerald-400' : 'text-amber-300'}`}>
                 {gpsStatus === 'LIVE_GPS' ? 'GPS LIVE' : 'ACQUIRING'}
               </h3>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              {gpsStatus === 'LIVE_GPS'
-                ? 'High-accuracy browser GPS telemetry streaming to local safety engine.'
-                : 'Waiting for browser GPS fix. Grant location permission to enable tracking.'}
-            </p>
+
+            {/* Real Street Address */}
+            <div className="p-2 rounded-xl bg-navy-950/60 border border-white/5 text-xs text-slate-300 flex items-start gap-2 mb-2">
+              <MapPin className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+              <p className="text-[11px] font-medium leading-tight text-white line-clamp-2">
+                {currentAddress || 'Acquiring street address...'}
+              </p>
+            </div>
           </div>
 
-          <div className="space-y-2 pt-3 border-t border-white/10 text-xs">
+          <div className="space-y-2 pt-2 border-t border-white/10 text-xs">
             <div className="flex items-center justify-between text-slate-300">
               <span className="flex items-center gap-1.5 text-slate-400">
-                <MapPin className="w-3.5 h-3.5 text-purple-400" /> Latitude:
+                <MapPin className="w-3.5 h-3.5 text-purple-400" /> Coordinates:
               </span>
               <span className="font-mono text-cyan-300">
-                {gpsLoc ? gpsLoc.latitude.toFixed(5) : 'Waiting for GPS'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-slate-300">
-              <span className="flex items-center gap-1.5 text-slate-400">
-                <MapPin className="w-3.5 h-3.5 text-purple-400" /> Longitude:
-              </span>
-              <span className="font-mono text-cyan-300">
-                {gpsLoc ? gpsLoc.longitude.toFixed(5) : 'Waiting for GPS'}
+                {gpsLoc ? `${gpsLoc.latitude.toFixed(4)}, ${gpsLoc.longitude.toFixed(4)}` : 'Waiting for GPS'}
               </span>
             </div>
             <div className="flex items-center justify-between text-slate-300">
@@ -335,7 +373,7 @@ export const UserDashboard: React.FC = () => {
 
           <RiskGauge score={riskAssessment.score} level={riskAssessment.level} size={150} strokeWidth={11} showDetails={false} />
 
-          {/* Quick Factor breakdown with Model-based labeling */}
+          {/* Quick Factor breakdown */}
           <div className="w-full grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-white/10">
             <div className="flex items-center justify-between text-slate-300 bg-navy-950/40 px-2 py-1 rounded-lg">
               <span className="text-slate-400">Location (30%):</span>
@@ -380,7 +418,7 @@ export const UserDashboard: React.FC = () => {
                   <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
                   <span className="text-slate-400">From:</span>
                   <span className="font-semibold text-slate-200 truncate">
-                    {gpsLoc ? `Live GPS (±${Math.round(gpsLoc.accuracy)}m)` : 'Current Device GPS'}
+                    {currentAddress || (gpsLoc ? `Live GPS (±${Math.round(gpsLoc.accuracy)}m)` : 'Current Location')}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
@@ -420,7 +458,7 @@ export const UserDashboard: React.FC = () => {
           </Button>
         </Card>
 
-        {/* CARD 4 — QUICK SOS (Rule 15 & 24) */}
+        {/* CARD 4 — QUICK SOS */}
         <Card variant="emergency" className="p-6 flex flex-col items-center justify-between text-center">
           <div className="w-full flex items-center justify-between mb-1">
             <span className="text-xs font-bold uppercase tracking-wider text-red-300">
@@ -432,6 +470,107 @@ export const UserDashboard: React.FC = () => {
           </div>
           <SosHoldButton size="normal" source="Dashboard SOS Trigger" />
         </Card>
+      </div>
+
+      {/* HARDWARE ACTUATORS & INSTANT DEFENSE TOOLBAR */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-navy-900/90 via-navy-850/90 to-purple-950/40 border border-white/10 backdrop-blur-md shadow-lg space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-purple-400" />
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              REAL HARDWARE SAFETY & DIRECT DISPATCH CONTROLS
+            </h3>
+          </div>
+          <span className="text-xs text-slate-400 font-mono">
+            Zero-latency native device actuation
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* 1. Loud Emergency Siren */}
+          <button
+            onClick={() => hardwareSafetyService.toggleSiren()}
+            className={`flex items-center justify-between p-3.5 rounded-xl border transition-all duration-200 group ${
+              hardwareState.isSirenActive
+                ? 'bg-red-600 border-red-400 text-white shadow-glow-red animate-pulse'
+                : 'bg-navy-950/80 border-slate-700/80 text-slate-200 hover:border-red-500/50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${hardwareState.isSirenActive ? 'bg-white/20 text-white' : 'bg-red-500/10 text-red-400'}`}>
+                {hardwareState.isSirenActive ? <Volume2 className="w-5 h-5 animate-bounce" /> : <VolumeX className="w-5 h-5" />}
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold leading-tight">
+                  {hardwareState.isSirenActive ? 'Siren WAILING' : 'Audio Siren'}
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {hardwareState.isSirenActive ? 'Click to Silence' : 'Web Audio 110dB'}
+                </div>
+              </div>
+            </div>
+            <span className={`w-2.5 h-2.5 rounded-full ${hardwareState.isSirenActive ? 'bg-white animate-ping' : 'bg-slate-600'}`} />
+          </button>
+
+          {/* 2. Flashlight Torch / Screen Strobe */}
+          <button
+            onClick={() => hardwareSafetyService.toggleStrobe()}
+            className={`flex items-center justify-between p-3.5 rounded-xl border transition-all duration-200 group ${
+              hardwareState.isStrobeActive
+                ? 'bg-amber-500 border-amber-300 text-black shadow-glow-amber animate-pulse'
+                : 'bg-navy-950/80 border-slate-700/80 text-slate-200 hover:border-amber-500/50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${hardwareState.isStrobeActive ? 'bg-black/20 text-black' : 'bg-amber-500/10 text-amber-400'}`}>
+                <Flashlight className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold leading-tight">
+                  {hardwareState.isStrobeActive ? 'Strobe ACTIVE' : 'Torch Strobe'}
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {hardwareState.isStrobeActive ? 'Click to Stop' : 'Camera / Screen'}
+                </div>
+              </div>
+            </div>
+            <span className={`w-2.5 h-2.5 rounded-full ${hardwareState.isStrobeActive ? 'bg-black animate-ping' : 'bg-slate-600'}`} />
+          </button>
+
+          {/* 3. WhatsApp Direct SOS */}
+          <button
+            onClick={handleWhatsAppQuickShare}
+            className="flex items-center justify-between p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 hover:bg-emerald-900/60 hover:border-emerald-400 transition-all duration-200 group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:scale-110 transition-transform">
+                <MessageSquare className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold leading-tight">WhatsApp SOS</div>
+                <div className="text-[10px] text-emerald-400/80">Send Live GPS</div>
+              </div>
+            </div>
+            <Share2 className="w-4 h-4 text-emerald-400 opacity-80" />
+          </button>
+
+          {/* 4. Direct 112 Call */}
+          <button
+            onClick={handleDirect112Call}
+            className="flex items-center justify-between p-3.5 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 hover:bg-red-900/60 hover:border-red-400 transition-all duration-200 group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-red-500/20 text-red-400 group-hover:scale-110 transition-transform animate-pulse">
+                <PhoneCall className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold leading-tight">National 112</div>
+                <div className="text-[10px] text-red-400/80">Police / SOS Call</div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-red-400 opacity-80" />
+          </button>
+        </div>
       </div>
 
       {/* Middle Grid: Real Map Telemetry & Guardian Network */}
@@ -536,7 +675,7 @@ export const UserDashboard: React.FC = () => {
             <div className="p-2.5 rounded-xl bg-navy-950/60 border border-white/5 text-[11px] text-slate-400 flex items-start gap-2">
               <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
               <span>
-                <strong>Official Police Integration:</strong> Not configured (Application Responder Network Active).
+                <strong>Official Police Integration:</strong> National 112 & Application Responder Network Active.
               </span>
             </div>
 

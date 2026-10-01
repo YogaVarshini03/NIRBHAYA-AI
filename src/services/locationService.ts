@@ -1,4 +1,4 @@
-// NIRBHAYA AI - Production Location Service using navigator.geolocation
+// NIRBHAYA AI - Production Location Service with Real High-Accuracy Geolocation & Reverse Geocoding
 export interface GPSLocation {
   latitude: number;
   longitude: number;
@@ -8,6 +8,7 @@ export interface GPSLocation {
   heading: number | null;
   speed: number | null;
   timestamp: number;
+  address?: string;
 }
 
 export type LocationStatus = 
@@ -21,6 +22,9 @@ export type LocationStatus =
 
 export type LocationListener = (location: GPSLocation | null, status: LocationStatus, error?: string) => void;
 
+// In-memory cache for reverse geocoding results
+const geocodeCache = new Map<string, string>();
+
 class LocationService {
   private watchId: number | null = null;
   private currentLocation: GPSLocation | null = null;
@@ -29,6 +33,8 @@ class LocationService {
   private lastErrorMessage: string | null = null;
   private listeners: Set<LocationListener> = new Set();
   private lastUpdatedTime: number = 0;
+  private cachedAddress: string = 'Locating current street...';
+  private isResolvingAddress: boolean = false;
 
   constructor() {
     this.currentLocation = null;
@@ -72,27 +78,34 @@ class LocationService {
       this.watchId = navigator.geolocation.watchPosition(
         (position: GeolocationPosition) => {
           this.hasRealFix = true;
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+
           this.currentLocation = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
+            latitude: lat,
+            longitude: lng,
             accuracy: Math.round(position.coords.accuracy),
             altitude: position.coords.altitude,
             altitudeAccuracy: position.coords.altitudeAccuracy,
             heading: position.coords.heading,
             speed: position.coords.speed,
             timestamp: position.timestamp,
+            address: this.cachedAddress,
           };
           this.currentStatus = 'LIVE_GPS';
           this.lastErrorMessage = null;
           this.lastUpdatedTime = Date.now();
           this.notifyListeners();
+
+          // Non-blocking reverse geocode update
+          this.resolveAddressForCoords(lat, lng);
         },
         (error: GeolocationPositionError) => {
           console.warn('[LocationService] Geolocation error:', error.message);
           switch (error.code) {
             case error.PERMISSION_DENIED:
               this.currentStatus = 'PERMISSION_DENIED';
-              this.lastErrorMessage = 'Location permission denied. Please allow GPS access in your browser settings.';
+              this.lastErrorMessage = 'Location permission denied. Please allow GPS access in browser settings.';
               break;
             case error.POSITION_UNAVAILABLE:
               this.currentStatus = 'POSITION_UNAVAILABLE';
@@ -124,8 +137,93 @@ class LocationService {
     }
   }
 
+  /**
+   * Reverse geocodes coordinates to a human-readable street name using OpenStreetMap Nominatim / BigDataCloud.
+   */
+  public async reverseGeocode(lat: number, lng: number): Promise<string> {
+    const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    if (geocodeCache.has(cacheKey)) {
+      return geocodeCache.get(cacheKey)!;
+    }
+
+    try {
+      // 1. Try free OpenStreetMap Nominatim
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+        {
+          headers: {
+            'Accept-Language': 'en',
+          },
+        }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.address) {
+          const a = data.address;
+          const road = a.road || a.street || a.pedestrian || a.suburb || a.neighbourhood || '';
+          const locality = a.city_district || a.suburb || a.city || a.town || a.village || a.county || '';
+          const state = a.state || a.country || '';
+          
+          const parts = [road, locality, state].filter(Boolean);
+          const fullAddress = parts.length > 0 ? parts.join(', ') : data.display_name?.split(',').slice(0, 3).join(',') || `Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+
+          geocodeCache.set(cacheKey, fullAddress);
+          return fullAddress;
+        }
+      }
+    } catch (e) {
+      // Fallback below
+    }
+
+    try {
+      // 2. Fast Fallback: BigDataCloud Reverse Geocoding API (free client endpoint)
+      const res2 = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
+      );
+      if (res2.ok) {
+        const d = await res2.json();
+        const parts = [d.locality || d.localityInfo?.administrative?.[3]?.name, d.city || d.principalSubdivision, d.countryName].filter(Boolean);
+        if (parts.length > 0) {
+          const addr = parts.join(', ');
+          geocodeCache.set(cacheKey, addr);
+          return addr;
+        }
+      }
+    } catch (e) {}
+
+    const fallback = `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+    geocodeCache.set(cacheKey, fallback);
+    return fallback;
+  }
+
+  private async resolveAddressForCoords(lat: number, lng: number): Promise<void> {
+    if (this.isResolvingAddress) return;
+    this.isResolvingAddress = true;
+
+    try {
+      const address = await this.reverseGeocode(lat, lng);
+      this.cachedAddress = address;
+      if (this.currentLocation) {
+        this.currentLocation = {
+          ...this.currentLocation,
+          address,
+        };
+        this.notifyListeners();
+      }
+    } catch (err) {
+      console.warn('[LocationService] Reverse geocode error:', err);
+    } finally {
+      this.isResolvingAddress = false;
+    }
+  }
+
   public getCurrentLocation(): GPSLocation | null {
     return this.currentLocation;
+  }
+
+  public getCachedAddress(): string {
+    return this.cachedAddress;
   }
 
   public hasRealFixAcquired(): boolean {

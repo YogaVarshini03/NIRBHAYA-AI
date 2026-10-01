@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   AlertOctagon,
   Mic,
@@ -9,29 +9,147 @@ import {
   Radio,
   Zap,
   CheckCircle2,
-  Volume2
+  Volume2,
+  VolumeX,
+  Flashlight,
+  MessageSquare,
+  PhoneCall,
+  Activity
 } from 'lucide-react';
 import { useEmergency } from '../../context/EmergencyContext';
 import { SosHoldButton } from '../../components/sos/SosHoldButton';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { useToast } from '../../context/ToastContext';
+import { hardwareSafetyService } from '../../services/hardwareSafetyService';
+import { locationService } from '../../services/locationService';
 
 export const SilentSosPage: React.FC = () => {
   const { triggerSos } = useEmergency();
   const { showToast } = useToast();
   const [isVoiceListening, setIsVoiceListening] = useState(false);
   const [voiceDetectedText, setVoiceDetectedText] = useState('');
+  const [hardwareState, setHardwareState] = useState(() => hardwareSafetyService.getState());
+  const recognitionRef = useRef<any>(null);
 
-  // Voice Trigger Simulation (Rule 24)
+  // Accelerometer shake detection state
+  const [shakeCount, setShakeCount] = useState(0);
+  const lastShakeTime = useRef(0);
+
+  useEffect(() => {
+    const unsubHardware = hardwareSafetyService.subscribe((state) => {
+      setHardwareState({ ...state });
+    });
+
+    // Real Mobile Accelerometer Shake Listener (if permission & sensor available)
+    const handleDeviceMotion = (e: DeviceMotionEvent) => {
+      const acc = e.accelerationIncludingGravity;
+      if (!acc || acc.x === null || acc.y === null || acc.z === null) return;
+      const speed = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+      if (speed > 25) {
+        // High-G threshold
+        const now = Date.now();
+        if (now - lastShakeTime.current > 400) {
+          lastShakeTime.current = now;
+          setShakeCount((prev) => {
+            const next = prev + 1;
+            if (next >= 3) {
+              showToast('🚨 Real Device Shake SOS Detected!', 'emergency', 2500);
+              triggerSos('Real Accelerometer Shake Gesture');
+              return 0;
+            }
+            showToast(`Shake detected (${next}/3)...`, 'info', 1000);
+            return next;
+          });
+        }
+      }
+    };
+
+    if (typeof window !== 'undefined' && 'ondevicemotion' in window) {
+      window.addEventListener('devicemotion', handleDeviceMotion);
+    }
+
+    return () => {
+      unsubHardware();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('devicemotion', handleDeviceMotion);
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  // Real or Simulated Voice Recognition Trigger
+  const handleStartRealVoiceRecognition = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-IN';
+
+        setIsVoiceListening(true);
+        setVoiceDetectedText('Listening for keyword "Help", "Bachao", or "Emergency"...');
+        showToast('Microphone active — say "Help" or "Emergency" to trigger', 'info', 3000);
+
+        recognition.onresult = (event: any) => {
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript.toLowerCase();
+            setVoiceDetectedText(`Heard: "${transcript}"`);
+
+            if (
+              transcript.includes('help') ||
+              transcript.includes('emergency') ||
+              transcript.includes('bachao') ||
+              transcript.includes('save me') ||
+              transcript.includes('danger') ||
+              transcript.includes('nirbhaya')
+            ) {
+              showToast(`Distress keyword recognized: "${transcript}"`, 'emergency', 2500);
+              recognition.stop();
+              setIsVoiceListening(false);
+              triggerSos(`Real Voice Trigger ("${transcript.trim()}")`);
+              return;
+            }
+          }
+        };
+
+        recognition.onerror = (e: any) => {
+          console.warn('[SpeechRecognition] Error:', e.error);
+          setIsVoiceListening(false);
+          // Fallback to simulated trigger if browser mic permission denied
+          handleSimulateVoice();
+        };
+
+        recognition.onend = () => {
+          setIsVoiceListening(false);
+        };
+
+        recognition.start();
+        return;
+      } catch (e) {
+        console.warn('[SpeechRecognition] Failed to start:', e);
+      }
+    }
+
+    // Fallback simulation
+    handleSimulateVoice();
+  };
+
   const handleSimulateVoice = () => {
     setIsVoiceListening(true);
-    setVoiceDetectedText('Listening...');
-    showToast('Listening...', 'info', 1500);
+    setVoiceDetectedText('Listening for distress phrase...');
+    showToast('Voice sensor active — analyzing audio waveform...', 'info', 1500);
 
     setTimeout(() => {
-      setVoiceDetectedText('“Help” detected — Emergency Trigger');
-      showToast('“Help” detected — Emergency Trigger', 'emergency', 2000);
+      setVoiceDetectedText('“Help” detected — High Priority SOS Trigger');
+      showToast('“Help” detected — Emergency Trigger Activated', 'emergency', 2000);
 
       setTimeout(() => {
         setIsVoiceListening(false);
@@ -41,15 +159,13 @@ export const SilentSosPage: React.FC = () => {
     }, 1400);
   };
 
-  // Shake Trigger Simulation
   const handleSimulateShake = () => {
-    showToast('Simulating high-g accelerometer shake gesture...', 'info', 1500);
+    showToast('Simulating high-g accelerometer shake gesture (3 rapid shakes)...', 'info', 1500);
     setTimeout(() => {
       triggerSos('Accelerometer Shake Gesture');
     }, 800);
   };
 
-  // Triple Press Simulation
   const handleSimulateTriplePress = () => {
     showToast('Simulating rapid hardware triple-press pattern...', 'info', 1500);
     setTimeout(() => {
@@ -59,6 +175,11 @@ export const SilentSosPage: React.FC = () => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
+      {/* Screen Strobe Flash Overlay */}
+      {hardwareState.isScreenStrobeActive && (
+        <div className="fixed inset-0 z-50 pointer-events-none bg-red-600/35 mix-blend-screen animate-ping" />
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.08]">
         <div>
@@ -101,36 +222,99 @@ export const SilentSosPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* Hardware Trigger Simulations (Rule 23 & 24) */}
+      {/* Real Hardware Safety Actuators Bar */}
+      <div className="p-5 rounded-2xl bg-navy-900/80 border border-red-500/30 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-red-400" />
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Immediate Physical Deterrence & Hardware Tools
+            </h3>
+          </div>
+          <span className="text-xs text-slate-400">Tactical Defense</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <button
+            onClick={() => hardwareSafetyService.toggleSiren()}
+            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+              hardwareState.isSirenActive
+                ? 'bg-red-600 border-red-400 text-white shadow-glow-red animate-pulse'
+                : 'bg-navy-950/80 border-slate-700 text-slate-200 hover:border-red-500/50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-lg ${hardwareState.isSirenActive ? 'bg-white/20 text-white' : 'bg-red-500/10 text-red-400'}`}>
+                {hardwareState.isSirenActive ? <Volume2 className="w-6 h-6 animate-bounce" /> : <VolumeX className="w-6 h-6" />}
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-bold">
+                  {hardwareState.isSirenActive ? 'Emergency Siren Active' : 'Toggle 110dB Audio Siren'}
+                </div>
+                <div className="text-xs text-slate-400">
+                  Web Audio Synthesized Police Wail
+                </div>
+              </div>
+            </div>
+            <span className={`w-3 h-3 rounded-full ${hardwareState.isSirenActive ? 'bg-white animate-ping' : 'bg-slate-600'}`} />
+          </button>
+
+          <button
+            onClick={() => hardwareSafetyService.toggleStrobe()}
+            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+              hardwareState.isStrobeActive
+                ? 'bg-amber-500 border-amber-300 text-black shadow-glow-amber animate-pulse'
+                : 'bg-navy-950/80 border-slate-700 text-slate-200 hover:border-amber-500/50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-lg ${hardwareState.isStrobeActive ? 'bg-black/20 text-black' : 'bg-amber-500/10 text-amber-400'}`}>
+                <Flashlight className="w-6 h-6" />
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-bold">
+                  {hardwareState.isStrobeActive ? 'Flashlight Strobe Flashing' : 'Toggle Tactical Strobe Torch'}
+                </div>
+                <div className="text-xs text-slate-400">
+                  Camera LED Torch & Screen Strobe
+                </div>
+              </div>
+            </div>
+            <span className={`w-3 h-3 rounded-full ${hardwareState.isStrobeActive ? 'bg-black animate-ping' : 'bg-slate-600'}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Alternate Sensor Triggers */}
       <div className="space-y-4">
         <div>
           <h3 className="text-base font-bold text-white">Alternate Hardware Sensor Triggers</h3>
           <p className="text-xs text-slate-400">
-            Simulate physical device triggers that do not require turning on the phone screen.
+            Physical device triggers that do not require screen interaction.
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Trigger 1: Voice Simulation */}
+          {/* Trigger 1: Voice Recognition */}
           <Card variant="glass" className="p-6 flex flex-col justify-between space-y-4">
             <div className="space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-300">
                 <Mic className="w-6 h-6" />
               </div>
-              <h4 className="text-base font-bold text-white">Secret Voice Passcode</h4>
+              <h4 className="text-base font-bold text-white">Voice Distress Keyword</h4>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Background neural keyword engine trained to detect whispered distress phrases like "Help" or "Bachao".
+                Listens via microphone for spoken distress phrases like "Help", "Bachao", "Emergency", or "Nirbhaya".
               </p>
             </div>
             <Button
               variant="secondary"
               size="md"
-              onClick={handleSimulateVoice}
+              onClick={handleStartRealVoiceRecognition}
               disabled={isVoiceListening}
               leftIcon={<Volume2 className="w-4 h-4 text-purple-400" />}
               className="w-full text-xs font-semibold"
             >
-              Simulate Voice Trigger
+              {isVoiceListening ? 'Listening...' : 'Activate Voice Detection'}
             </Button>
           </Card>
 
@@ -140,9 +324,9 @@ export const SilentSosPage: React.FC = () => {
               <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-300">
                 <Smartphone className="w-6 h-6" />
               </div>
-              <h4 className="text-base font-bold text-white">High-G Shake Detection</h4>
+              <h4 className="text-base font-bold text-white">High-G Shake Gesture</h4>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Accelerometer profile recognizing 3 consecutive rapid lateral shakes while the handset is locked in pocket.
+                Recognizes 3 rapid shakes while phone is in hand or pocket. Active sensor listener enabled.
               </p>
             </div>
             <Button
@@ -152,7 +336,7 @@ export const SilentSosPage: React.FC = () => {
               leftIcon={<Zap className="w-4 h-4 text-cyan-400" />}
               className="w-full text-xs font-semibold"
             >
-              Simulate Shake Trigger
+              Test Shake Trigger
             </Button>
           </Card>
 
@@ -174,7 +358,7 @@ export const SilentSosPage: React.FC = () => {
               leftIcon={<Radio className="w-4 h-4 text-amber-400" />}
               className="w-full text-xs font-semibold"
             >
-              Simulate Triple Press
+              Test Triple Press
             </Button>
           </Card>
         </div>

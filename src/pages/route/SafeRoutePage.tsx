@@ -45,7 +45,7 @@ export const SafeRoutePage: React.FC = () => {
     const unsub = locationService.subscribe((loc, status) => {
       setGpsLoc(loc);
       if (status === 'LIVE_GPS' && loc) {
-        setCurrentLocation(`Live GPS (${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}) ±${loc.accuracy}m`);
+        setCurrentLocation(loc.address ? `${loc.address} (±${loc.accuracy}m)` : `Live GPS (${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}) ±${loc.accuracy}m`);
       } else if (!loc) {
         setCurrentLocation('GPS unavailable — waiting for location permission');
       }
