@@ -174,7 +174,7 @@ if (fs.existsSync(distDir)) {
 const server = http.createServer(app);
 setupWebSocket(server);
 
-server.listen(PORT, () => {
+server.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`=======================================================`);
   console.log(`🛡️  NIRBHAYA AI Backend Server Running on Port ${PORT}`);
   console.log(`📡 WebSocket Real-time Telemetry Gateway active on /ws`);

@@ -367,6 +367,17 @@ async function initMySQLTables() {
   try { await mysqlPool.query("ALTER TABLE evidence_records ADD COLUMN longitude DOUBLE;"); } catch {}
   try { await mysqlPool.query("ALTER TABLE evidence_records ADD COLUMN gps_accuracy DOUBLE;"); } catch {}
   try { await mysqlPool.query("ALTER TABLE evidence_records ADD COLUMN captured_at VARCHAR(64);"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE access_keys ADD COLUMN failed_attempts INT DEFAULT 0;"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE access_keys ADD COLUMN locked_until VARCHAR(64);"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE users ADD COLUMN pin_hash VARCHAR(255);"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE users ADD COLUMN duress_pin_hash VARCHAR(255);"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE users ADD COLUMN language VARCHAR(16) DEFAULT 'en';"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE trusted_contacts ADD COLUMN verification_status VARCHAR(32) DEFAULT 'PENDING';"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE trusted_contacts ADD COLUMN priority_order INT DEFAULT 1;"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE trusted_contacts ADD COLUMN consent_token VARCHAR(64);"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE emergency_incidents ADD COLUMN police_station_name VARCHAR(255);"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE emergency_incidents ADD COLUMN police_station_phone VARCHAR(64);"); } catch {}
+  try { await mysqlPool.query("ALTER TABLE emergency_incidents ADD COLUMN nearest_stations_json TEXT;"); } catch {}
 
   console.log('[Database] All MySQL tables verified & initialized.');
 }
