@@ -134,7 +134,7 @@ export const ActiveEmergencyPage: React.FC = () => {
   const lng = incidentData?.longitude || activeIncident?.coordinates?.lng || 0;
   const accuracy = incidentData?.accuracy ? Math.round(incidentData.accuracy) : 8;
   const userName = incidentData?.user_name || 'Registered Citizen';
-  const userPhone = incidentData?.user_phone || '9345596322';
+  const userPhone = incidentData?.user_phone || '';
 
   const isResolved = status === 'RESOLVED' || status === 'CANCELLED';
 
@@ -181,6 +181,10 @@ export const ActiveEmergencyPage: React.FC = () => {
   };
 
   const handleContact = () => {
+    if (!userPhone || userPhone.trim() === '' || userPhone.includes('X')) {
+      showToast('No valid contact phone number available for this citizen.', 'warning');
+      return;
+    }
     const cleanPhone = userPhone.replace(/[^\d+]/g, '');
     window.open(`tel:${cleanPhone}`, '_self');
     showToast(`Connecting emergency call line to ${cleanPhone}`, 'info');

@@ -58,6 +58,21 @@ export function getApiBaseUrl(): string {
 }
 
 /**
+ * Resolves the frontend application base URL for generating live tracking and sharing links.
+ * Read from VITE_APP_BASE_URL or APP_BASE_URL (defaults to http://localhost:5173).
+ */
+export function getAppBaseUrl(): string {
+  const envAppUrl = (import.meta as any).env?.VITE_APP_BASE_URL || (import.meta as any).env?.APP_BASE_URL;
+  if (envAppUrl && typeof envAppUrl === 'string' && envAppUrl.trim() !== '') {
+    return envAppUrl.trim().replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return 'http://localhost:5173';
+}
+
+/**
  * Formats a relative endpoint (e.g. '/api/emergency/create') with the resolved base URL.
  */
 export function apiUrl(endpoint: string): string {

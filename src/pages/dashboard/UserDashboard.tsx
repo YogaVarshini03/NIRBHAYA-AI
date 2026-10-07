@@ -42,6 +42,7 @@ import { routeDeviationService } from '../../services/routeDeviationService';
 import { storageService, StorageKeys } from '../../services/storageService';
 import { AppSettings, RiskAssessment, RouteDeviationState } from '../../types';
 import { useToast } from '../../context/ToastContext';
+import { getAppBaseUrl } from '../../services/apiConfig';
 
 export const UserDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -124,15 +125,17 @@ export const UserDashboard: React.FC = () => {
   const gpsDisplay = getGpsStatusDisplay();
 
   const primaryContact = contacts.find((c) => c.isEmergencyContact) || contacts[0];
-  const primaryPhone = primaryContact?.phone?.replace(/\D/g, '') || '9345596322';
+  const rawPhone = primaryContact?.phone || '';
+  const primaryPhone = (rawPhone && !rawPhone.includes('X')) ? rawPhone.replace(/\D/g, '') : '';
 
   const handleWhatsAppQuickShare = () => {
     const lat = gpsLoc?.latitude || 0;
     const lng = gpsLoc?.longitude || 0;
     const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
-    const trackingUrl = typeof window !== 'undefined' ? `${window.location.origin}/live-tracking` : 'https://nirbhaya.ai/live-tracking';
+    const appBase = getAppBaseUrl();
+    const trackingUrl = `${appBase}/live-tracking`;
     const text = `🚨 EMERGENCY ALERT FROM NIRBHAYA AI!\nI need assistance right now!\n📍 Real Address: ${currentAddress}\n📌 Live Maps: ${mapsUrl}\n🔴 Live Radar: ${trackingUrl}`;
-    const waUrl = `https://wa.me/${primaryPhone ? primaryPhone : ''}?text=${encodeURIComponent(text)}`;
+    const waUrl = primaryPhone ? `https://wa.me/${primaryPhone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(waUrl, '_blank');
     showToast('Dispatched WhatsApp SOS with live GPS coordinates!', 'info');
   };

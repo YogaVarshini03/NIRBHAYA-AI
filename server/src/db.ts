@@ -550,6 +550,17 @@ function initSQLiteTables() {
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS police_stations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      district TEXT NOT NULL,
+      address TEXT,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Safe migrations for SQLite
@@ -560,6 +571,15 @@ function initSQLiteTables() {
   try { sqliteDb.exec("ALTER TABLE evidence_records ADD COLUMN captured_at TEXT;"); } catch {}
   try { sqliteDb.exec("ALTER TABLE access_keys ADD COLUMN failed_attempts INTEGER DEFAULT 0;"); } catch {}
   try { sqliteDb.exec("ALTER TABLE access_keys ADD COLUMN locked_until TEXT;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE users ADD COLUMN pin_hash TEXT;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE users ADD COLUMN duress_pin_hash TEXT;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'en';"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE trusted_contacts ADD COLUMN verification_status TEXT DEFAULT 'PENDING';"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE trusted_contacts ADD COLUMN priority_order INTEGER DEFAULT 1;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE trusted_contacts ADD COLUMN consent_token TEXT;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE emergency_incidents ADD COLUMN police_station_name TEXT;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE emergency_incidents ADD COLUMN police_station_phone TEXT;"); } catch {}
+  try { sqliteDb.exec("ALTER TABLE emergency_incidents ADD COLUMN nearest_stations_json TEXT;"); } catch {}
 
   console.log('[Database] All SQLite tables verified & initialized.');
 }
@@ -569,24 +589,17 @@ async function seedDefaultData() {
   const now = new Date().toISOString();
 
   // 1. Seed primary user (ABHISHEK K / USR-7F42A91C)
+  const defaultPinHash = bcrypt.hashSync('1234', salt);
   const existingUser = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
   if (!existingUser) {
     const passwordHash = bcrypt.hashSync('demo1234', salt);
     await db.execute(
-      'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ['USR-7F42A91C', 'Abhishek K', 'demo@nirbhaya.ai', passwordHash, '+91 93455 96322', 'USER', now]
+      'INSERT INTO users (id, name, email, password_hash, phone, role, created_at, pin_hash, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ['USR-7F42A91C', 'Abhishek K', 'demo@nirbhaya.ai', passwordHash, '+91 93455 96322', 'USER', now, defaultPinHash, 'en']
     );
     console.log('[Database] Seeded default user: Abhishek K (USR-7F42A91C)');
-  } else if (existingUser.id !== 'USR-7F42A91C') {
-    // Migrate to permanent clean ID format safely with foreign keys disabled
-    if (sqliteDb) sqliteDb.pragma('foreign_keys = OFF');
-    await db.execute("UPDATE users SET id = 'USR-7F42A91C', name = 'Abhishek K', phone = '+91 93455 96322' WHERE email = 'demo@nirbhaya.ai'");
-    await db.execute("UPDATE trusted_contacts SET user_id = 'USR-7F42A91C' WHERE user_id = ?", [existingUser.id]);
-    await db.execute("UPDATE emergency_incidents SET user_id = 'USR-7F42A91C' WHERE user_id = ?", [existingUser.id]);
-    await db.execute("UPDATE location_updates SET user_id = 'USR-7F42A91C' WHERE user_id = ?", [existingUser.id]);
-    await db.execute("UPDATE tracking_sessions SET user_id = 'USR-7F42A91C' WHERE user_id = ?", [existingUser.id]);
-    if (sqliteDb) sqliteDb.pragma('foreign_keys = ON');
-    console.log('[Database] Migrated demo user ID to USR-7F42A91C');
+  } else {
+    await db.execute("UPDATE users SET pin_hash = COALESCE(pin_hash, ?) WHERE email = 'demo@nirbhaya.ai'", [defaultPinHash]);
   }
 
   // 2. Seed responder user (Officer Arjun Kumar / RSP-1042)
@@ -598,11 +611,6 @@ async function seedDefaultData() {
       ['RSP-1042', 'Officer Arjun Kumar (Application Responder)', 'arjun@police.gov.in', respHash, '+91 112 000 1042', 'RESPONDER', now]
     );
     console.log('[Database] Seeded default responder: Officer Arjun Kumar (RSP-1042)');
-  } else if (existingResponder.id !== 'RSP-1042') {
-    if (sqliteDb) sqliteDb.pragma('foreign_keys = OFF');
-    await db.execute("UPDATE users SET id = 'RSP-1042', name = 'Officer Arjun Kumar (Application Responder)' WHERE email = 'arjun@police.gov.in'");
-    if (sqliteDb) sqliteDb.pragma('foreign_keys = ON');
-    console.log('[Database] Migrated responder ID to RSP-1042');
   }
 
   // 3. Seed admin user (ADM-9001)
@@ -611,7 +619,7 @@ async function seedDefaultData() {
     const adminHash = bcrypt.hashSync('admin1234', salt);
     await db.execute(
       'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ['ADM-9001', 'Safety Operations Admin', 'admin@nirbhaya.ai', adminHash, '+91 98765 00001', 'ADMIN', now]
+      ['ADM-9001', 'Safety Operations Admin', 'admin@nirbhaya.ai', adminHash, '+91XXXXXXXXXX', 'ADMIN', now]
     );
     console.log('[Database] Seeded default admin: Safety Operations Admin (ADM-9001)');
   }
@@ -619,29 +627,94 @@ async function seedDefaultData() {
   // 4. Seed primary trusted test contact for demo user
   const user = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
   if (user) {
-    const contactCheck = await db.queryOne<{ id: string }>('SELECT id FROM trusted_contacts WHERE user_id = ? AND phone = ?', [user.id, '9345596322']);
+    const contactCheck = await db.queryOne<{ id: string }>('SELECT id FROM trusted_contacts WHERE user_id = ? AND phone = ?', [user.id, '+91XXXXXXXXXX']);
     if (!contactCheck) {
       await db.execute(
-        `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, verification_status, priority_order, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           'cnt_test_primary_01',
           user.id,
-          'Saranya R (Primary Emergency Contact)',
-          '9345596322',
-          'saranyarajendran2612@gmail.com',
+          'Primary Emergency Guardian',
+          '+91XXXXXXXXXX',
+          'guardian@example.com',
           'Guardian',
           1,
           'All Channels',
+          'VERIFIED',
+          1,
           now,
           now
         ]
       );
-      console.log('[Database] Seeded primary emergency contact (9345596322 / saranyarajendran2612@gmail.com)');
+      console.log('[Database] Seeded primary emergency contact (+91XXXXXXXXXX / guardian@example.com) as VERIFIED');
+    } else {
+      await db.execute("UPDATE trusted_contacts SET verification_status = 'VERIFIED', priority_order = 1 WHERE id = ?", [contactCheck.id]);
     }
   }
 
-  // 5. Seed default NIRBHAYA Access Keys (Section 1)
+  // 5. Seed Regional Police Stations for offline / fallback lookup
+  const seededStations = [
+    {
+      id: 'pol_cbe_b1',
+      name: 'B1 Central Police Station',
+      phone: '100',
+      lat: 11.0168,
+      lng: 76.9558,
+      district: 'Central District',
+      address: 'Central Town Hall Complex'
+    },
+    {
+      id: 'pol_cbe_b2',
+      name: 'B2 West Police Station',
+      phone: '100',
+      lat: 11.0089,
+      lng: 76.9482,
+      district: 'West District',
+      address: 'Main Boulevard Sector 2'
+    },
+    {
+      id: 'pol_cbe_c1',
+      name: 'C1 North Police Station',
+      phone: '100',
+      lat: 11.0183,
+      lng: 76.9674,
+      district: 'North District',
+      address: 'North Central Sector'
+    },
+    {
+      id: 'pol_cbe_all_women',
+      name: 'All Women Emergency Police Station',
+      phone: '100',
+      lat: 11.0035,
+      lng: 76.9620,
+      district: 'Central District',
+      address: 'Collectorate Complex'
+    },
+    {
+      id: 'pol_cbe_peelamedu',
+      name: 'E1 East Police Station',
+      phone: '100',
+      lat: 11.0315,
+      lng: 77.0080,
+      district: 'East District',
+      address: 'Main Expressway Corridor'
+    }
+  ];
+
+  for (const st of seededStations) {
+    const exists = await db.queryOne('SELECT id FROM police_stations WHERE id = ?', [st.id]);
+    if (!exists) {
+      await db.execute(
+        `INSERT INTO police_stations (id, name, phone, latitude, longitude, district, address, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [st.id, st.name, st.phone, st.lat, st.lng, st.district, st.address, now]
+      );
+    }
+  }
+  console.log('[Database] Verified & seeded regional police stations.');
+
+  // 6. Seed default NIRBHAYA Access Keys (Section 1)
   const seedKey = async (email: string, rawKey: string) => {
     const userRow = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', [email]);
     if (!userRow) return;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   Plus,
@@ -9,9 +9,10 @@ import {
   Edit2,
   Send,
   AlertCircle,
-  Radio,
-  Sparkles,
-  ShieldCheck
+  Clock,
+  ShieldCheck,
+  ShieldAlert,
+  ArrowUpDown
 } from 'lucide-react';
 import { contactService } from '../../services/contactService';
 import { Contact } from '../../types';
@@ -28,39 +29,55 @@ export const TrustedContactsPage: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [contactToDelete, setContactToDelete] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
-    relationship: 'Mother' as Contact['relationship'],
+    relationship: 'Guardian' as Contact['relationship'],
     phone: '',
-    notificationPreference: 'SMS & App' as Contact['notificationPreference'],
+    notificationPreference: 'All Channels' as Contact['notificationPreference'],
+    priorityOrder: 1,
   });
   const [formError, setFormError] = useState('');
 
-  const [isAlerting, setIsAlerting] = useState<string | null>(null);
+  const refreshContacts = async () => {
+    const list = await contactService.fetchContactsFromBackend();
+    setContacts(list);
+  };
 
-  React.useEffect(() => {
-    contactService.fetchContactsFromBackend().then((list) => {
-      setContacts(list);
-    });
+  useEffect(() => {
+    refreshContacts();
   }, []);
 
-  // Real Test Alert dispatching to real SMS and Email gateways
-  const handleTestAlert = async (contact: Contact) => {
-    setIsAlerting(contact.id);
-    showToast(`Dispatching live test alert to ${contact.name}...`, 'info');
-
+  const handleSendConsent = async (contact: Contact) => {
+    setActionLoadingId(contact.id);
+    showToast(`Sending consent request SMS to ${contact.name} (${contact.phone})...`, 'info');
     try {
-      const result = await contactService.sendTestAlert(contact.id);
-      if (result.success) {
-        showToast(`✓ Test alert delivered to ${contact.name}! (SMS: ${result.smsStatus})`, 'success');
+      const res = await contactService.sendConsentSms(contact.id);
+      if (res.success) {
+        showToast(`✓ Consent SMS dispatched to ${contact.name}!`, 'success');
       } else {
-        showToast(`✕ SMS Gateway: ${result.smsStatus}`, 'error', 5000);
+        showToast(`✕ SMS Gateway: ${res.message}`, 'error', 6000);
       }
-    } catch (err: any) {
-      showToast('✕ Network error sending test alert to gateway.', 'error');
+    } catch (e: any) {
+      showToast('✕ Error dispatching consent SMS', 'error');
     } finally {
-      setIsAlerting(null);
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleManualVerify = async (contact: Contact) => {
+    setActionLoadingId(contact.id);
+    try {
+      const res = await contactService.verifyContact(contact.id);
+      if (res.success) {
+        showToast(`✓ ${contact.name} verified as emergency guardian!`, 'success');
+        await refreshContacts();
+      } else {
+        showToast(`✕ Verification error: ${res.message}`, 'error');
+      }
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -68,9 +85,10 @@ export const TrustedContactsPage: React.FC = () => {
     setEditingContact(null);
     setFormData({
       name: '',
-      relationship: 'Mother',
-      phone: '',
-      notificationPreference: 'SMS & App',
+      relationship: 'Guardian',
+      phone: '+91 ',
+      notificationPreference: 'All Channels',
+      priorityOrder: contacts.length + 1,
     });
     setFormError('');
     setIsAddModalOpen(true);
@@ -83,6 +101,7 @@ export const TrustedContactsPage: React.FC = () => {
       relationship: contact.relationship,
       phone: contact.phone,
       notificationPreference: contact.notificationPreference,
+      priorityOrder: contact.priority_order || 1,
     });
     setFormError('');
     setIsAddModalOpen(true);
@@ -104,52 +123,58 @@ export const TrustedContactsPage: React.FC = () => {
 
     if (editingContact) {
       await contactService.updateContact(editingContact.id, {
-        name: formData.name,
+        name: formData.name.trim(),
         relationship: formData.relationship,
-        phone: formData.phone,
+        phone: formData.phone.trim(),
         notificationPreference: formData.notificationPreference,
+        priority_order: formData.priorityOrder,
       });
       showToast('Contact updated successfully.', 'success');
+      setIsAddModalOpen(false);
+      refreshContacts();
     } else {
       const res = await contactService.addContact({
-        name: formData.name,
+        name: formData.name.trim(),
         relationship: formData.relationship,
-        phone: formData.phone,
-        online: true,
+        phone: formData.phone.trim(),
         notificationPreference: formData.notificationPreference,
+        online: true,
+        priority_order: formData.priorityOrder,
       });
+
       if (!res.success) {
-        setFormError(res.error || 'Failed to add contact.');
+        setFormError(res.error || 'Failed to save contact.');
         return;
       }
-      showToast('Contact added successfully.', 'success');
-    }
 
-    setContacts(contactService.getContacts());
-    setIsAddModalOpen(false);
+      showToast(`Contact saved. ${res.consentMessage || 'Consent SMS sent.'}`, 'success', 5000);
+      setIsAddModalOpen(false);
+      refreshContacts();
+    }
   };
 
-  const handleDelete = async () => {
-    if (!contactToDelete) return;
-    await contactService.deleteContact(contactToDelete);
-    setContacts(contactService.getContacts());
-    setContactToDelete(null);
-    showToast('Contact removed from emergency circle.', 'info');
+  const handleDeleteConfirm = async () => {
+    if (contactToDelete) {
+      await contactService.deleteContact(contactToDelete);
+      showToast('Emergency contact removed from safety network.', 'info');
+      setContactToDelete(null);
+      refreshContacts();
+    }
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.08]">
+    <div className="space-y-6 animate-in fade-in">
+      {/* Top Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-white/10 gap-4">
         <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">
-            Immediate Response Circle
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-1">
-            Trusted Emergency Contacts
-          </h2>
-          <p className="text-sm text-slate-400">
-            Prioritized family and friends who receive instant simulated alerts during distress escalation.
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-white">Trusted Guardian Circle</h2>
+            <span className="text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2.5 py-0.5 rounded-full font-semibold">
+              {contacts.length} Guardians
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+            Prioritized emergency contacts who receive instant live GPS telemetry, automated voice calls, and parallel SMS alerts during distress.
           </p>
         </div>
         <Button
@@ -157,87 +182,145 @@ export const TrustedContactsPage: React.FC = () => {
           size="sm"
           onClick={handleOpenAdd}
           leftIcon={<Plus className="w-4 h-4" />}
+          className="shadow-glow-purple shrink-0"
         >
           Add Emergency Contact
         </Button>
       </div>
 
-      {/* Contacts List Grid (Rule 29) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {contacts.map((contact) => (
-          <Card key={contact.id} variant="glass" className="p-6 flex flex-col justify-between space-y-4">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center font-bold text-base text-indigo-300">
-                    {contact.name.charAt(0)}
+      {/* Consent & Verification Info Banner */}
+      <div className="p-4 rounded-2xl bg-purple-950/30 border border-purple-500/20 flex items-start gap-3 text-xs text-purple-200">
+        <ShieldCheck className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p className="font-semibold text-white">Guardian Consent & Sequential Voice Dispatch Protocol</p>
+          <p className="text-purple-300 leading-relaxed">
+            When you trigger SOS, all <span className="text-emerald-400 font-bold">VERIFIED</span> contacts receive parallel SMS alerts. Automated Twilio voice calls ring Guardian #1 first. If unanswered within 30 seconds, the system automatically rings Guardian #2 in priority order.
+          </p>
+        </div>
+      </div>
+
+      {/* Contacts List Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {contacts.map((contact, idx) => {
+          const isVerified = contact.verification_status === 'VERIFIED';
+          const order = contact.priority_order || (idx + 1);
+
+          return (
+            <Card key={contact.id} variant="glass" className="p-5 flex flex-col justify-between space-y-4 relative overflow-hidden">
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center font-bold text-base text-purple-300 shrink-0">
+                      #{order}
+                    </div>
+                    <div>
+                      <h4 className="text-base font-bold text-white flex items-center gap-2">
+                        {contact.name}
+                        {contact.isPrimary && (
+                          <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold">
+                            Primary
+                          </span>
+                        )}
+                      </h4>
+                      <span className="text-xs text-purple-400 font-medium">{contact.relationship}</span>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-base font-bold text-white">{contact.name}</h4>
-                    <span className="text-xs text-purple-400 font-semibold">{contact.relationship}</span>
-                  </div>
+
+                  <span className={`text-[11px] px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border shrink-0 ${
+                    isVerified
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-400 border-amber-500/30 animate-pulse'
+                  }`}>
+                    {isVerified ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                    {isVerified ? 'VERIFIED GUARDIAN' : 'CONSENT PENDING'}
+                  </span>
                 </div>
 
-                <Badge variant={contact.online ? 'low' : 'neutral'} size="sm" dot>
-                  {contact.online ? 'Online' : 'Offline'}
-                </Badge>
+                <div className="p-3 rounded-xl bg-navy-950/60 border border-white/5 space-y-2 text-xs">
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="flex items-center gap-1.5 text-slate-400">
+                      <Phone className="w-3.5 h-3.5 text-purple-400" /> Phone:
+                    </span>
+                    <span className="font-mono font-medium text-white">{contact.phone}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="flex items-center gap-1.5 text-slate-400">
+                      <ArrowUpDown className="w-3.5 h-3.5 text-cyan-400" /> Call Priority:
+                    </span>
+                    <span className="text-slate-200">Priority #{order} (Rings {order === 1 ? 'First' : `after Guardian #${order - 1}`})</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-navy-950/60 border border-white/5 space-y-2 text-xs">
-                <div className="flex items-center justify-between text-slate-300">
-                  <span className="flex items-center gap-1.5 text-slate-400">
-                    <Phone className="w-3.5 h-3.5 text-indigo-400" /> Phone:
-                  </span>
-                  <span className="font-mono font-medium">{contact.phone}</span>
+              {/* Action Bar */}
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/10">
+                <div className="flex items-center gap-2 flex-1">
+                  {!isVerified ? (
+                    <>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={actionLoadingId === contact.id}
+                        onClick={() => handleSendConsent(contact)}
+                        leftIcon={<Send className="w-3.5 h-3.5 text-purple-400" />}
+                        className="text-xs flex-1"
+                      >
+                        Resend Consent SMS
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={actionLoadingId === contact.id}
+                        onClick={() => handleManualVerify(contact)}
+                        className="text-xs border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40"
+                      >
+                        Verify (Drill)
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={actionLoadingId === contact.id}
+                      onClick={() => handleSendConsent(contact)}
+                      leftIcon={<Send className="w-3.5 h-3.5 text-emerald-400" />}
+                      className="text-xs flex-1"
+                    >
+                      Test Alert SMS
+                    </Button>
+                  )}
                 </div>
-                <div className="flex items-center justify-between text-slate-300">
-                  <span className="flex items-center gap-1.5 text-slate-400">
-                    <Bell className="w-3.5 h-3.5 text-cyan-400" /> Priority:
-                  </span>
-                  <span className="text-slate-200">{contact.notificationPreference}</span>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleOpenEdit(contact)}
+                    className="p-2 rounded-xl bg-navy-900 border border-white/10 hover:border-white/20 text-slate-300 hover:text-white transition"
+                    title="Edit Contact"
+                    aria-label="Edit Contact"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    onClick={() => setContactToDelete(contact.id)}
+                    className="p-2 rounded-xl bg-navy-900 border border-white/10 hover:border-red-500/30 text-slate-400 hover:text-red-400 transition"
+                    title="Delete Contact"
+                    aria-label="Delete Contact"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-            </div>
-
-            {/* Action Buttons: Edit, Remove, Test Alert (Rule 29) */}
-            <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/10">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => handleTestAlert(contact)}
-                leftIcon={<Send className="w-3.5 h-3.5 text-indigo-400" />}
-                className="flex-1 text-xs"
-              >
-                Test Alert — DEMO
-              </Button>
-
-              <button
-                onClick={() => handleOpenEdit(contact)}
-                className="p-2 rounded-xl bg-navy-900 border border-white/10 hover:border-white/20 text-slate-300 hover:text-white"
-                title="Edit Contact"
-                aria-label="Edit Contact"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-              </button>
-
-              <button
-                onClick={() => setContactToDelete(contact.id)}
-                className="p-2 rounded-xl bg-navy-900 border border-white/10 hover:border-red-500/30 text-slate-400 hover:text-red-400"
-                title="Delete Contact"
-                aria-label="Delete Contact"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
       </div>
 
       {/* Add / Edit Contact Modal */}
       <Modal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        title={editingContact ? 'Edit Emergency Contact' : 'Add Trusted Contact'}
+        title={editingContact ? 'Edit Emergency Contact' : 'Add Emergency Guardian'}
         maxWidth="md"
       >
         <form onSubmit={handleSaveContact} className="space-y-4">
@@ -249,29 +332,33 @@ export const TrustedContactsPage: React.FC = () => {
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+              Full Name *
+            </label>
             <input
               type="text"
-              required
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="e.g. Sunita Sharma"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-navy-950 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none"
+              placeholder="e.g. Priya S"
+              className="w-full px-4 py-2.5 rounded-xl bg-navy-950 border border-white/10 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-purple-500"
+              required
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Relationship</label>
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                Relationship
+              </label>
               <select
                 value={formData.relationship}
                 onChange={(e) => setFormData({ ...formData, relationship: e.target.value as any })}
-                className="w-full px-3 py-2.5 rounded-xl bg-navy-950 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none"
+                className="w-full px-4 py-2.5 rounded-xl bg-navy-950 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500"
               >
                 <option value="Mother">Mother</option>
                 <option value="Father">Father</option>
-                <option value="Friend">Friend</option>
                 <option value="Guardian">Guardian</option>
+                <option value="Friend">Friend</option>
                 <option value="Sibling">Sibling</option>
                 <option value="Partner">Partner</option>
                 <option value="Other">Other</option>
@@ -279,53 +366,71 @@ export const TrustedContactsPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Notification Priority</label>
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                Call Priority Order
+              </label>
               <select
-                value={formData.notificationPreference}
-                onChange={(e) => setFormData({ ...formData, notificationPreference: e.target.value as any })}
-                className="w-full px-3 py-2.5 rounded-xl bg-navy-950 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none"
+                value={formData.priorityOrder}
+                onChange={(e) => setFormData({ ...formData, priorityOrder: parseInt(e.target.value, 10) })}
+                className="w-full px-4 py-2.5 rounded-xl bg-navy-950 border border-white/10 text-white text-sm focus:outline-none focus:border-purple-500"
               >
-                <option value="SMS & App">SMS & App</option>
-                <option value="Push Only">Push Only</option>
-                <option value="Call Priority">Call Priority</option>
-                <option value="All Channels">All Channels</option>
+                <option value={1}>#1 (First Call Target)</option>
+                <option value={2}>#2 (Second Call Target)</option>
+                <option value={3}>#3 (Third Call Target)</option>
+                <option value={4}>#4 (Fourth Call Target)</option>
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Phone Number</label>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+              Phone Number (E.164 Format) *
+            </label>
             <input
               type="tel"
-              required
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              placeholder="+91 98765 11223"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-navy-950 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none"
+              placeholder="+91 93455 96322"
+              className="w-full px-4 py-2.5 rounded-xl bg-navy-950 border border-white/10 text-white placeholder-slate-500 text-sm font-mono focus:outline-none focus:border-purple-500"
+              required
             />
+            <p className="text-[11px] text-slate-400 mt-1">
+              Indian 10-digit numbers default to +91. Consent SMS will be dispatched automatically upon adding.
+            </p>
           </div>
 
           <div className="flex justify-end gap-3 pt-3 border-t border-white/10">
-            <Button variant="ghost" size="sm" type="button" onClick={() => setIsAddModalOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsAddModalOpen(false)}
+            >
               Cancel
             </Button>
-            <Button variant="primary" size="sm" type="submit">
-              {editingContact ? 'Save Changes' : 'Add Contact'}
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              className="shadow-glow-purple"
+            >
+              {editingContact ? 'Save Changes' : 'Add & Send Consent SMS'}
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation */}
       <ConfirmDialog
-        isOpen={!!contactToDelete}
+        isOpen={Boolean(contactToDelete)}
         onClose={() => setContactToDelete(null)}
-        onConfirm={handleDelete}
-        title="Remove Emergency Contact"
-        message="Are you sure you want to remove this person from your rapid response circle?"
-        confirmText="Remove Contact"
-        isDestructive
+        onConfirm={handleDeleteConfirm}
+        title="Remove Emergency Guardian?"
+        message="Are you sure you want to remove this contact? They will no longer receive live GPS coordinates or automated emergency calls during SOS dispatch."
+        confirmText="Remove Guardian"
+        isDestructive={true}
       />
     </div>
   );
 };
+export default TrustedContactsPage;

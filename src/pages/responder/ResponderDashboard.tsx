@@ -161,7 +161,11 @@ export const ResponderDashboard: React.FC = () => {
 
   const handleContact = (e: React.MouseEvent, phone?: string) => {
     e.stopPropagation();
-    const cleanPhone = (phone || '9345596322').replace(/[^\d+]/g, '');
+    if (!phone || phone.trim() === '' || phone.includes('X')) {
+      showToast('No valid contact phone number available for this citizen.', 'warning');
+      return;
+    }
+    const cleanPhone = phone.replace(/[^\d+]/g, '');
     window.open(`tel:${cleanPhone}`, '_self');
     showToast(`Initiating direct voice contact with emergency line: ${cleanPhone}`, 'info');
   };

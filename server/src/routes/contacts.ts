@@ -1,21 +1,21 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { authenticateToken } from './auth';
-import { sendEmergencySms } from '../services/smsService';
-import { sendEmergencyEmail } from '../services/emailService';
+import { sendEmergencySms, formatE164Phone } from '../services/smsService';
 import { v4 as uuidv4 } from 'uuid';
 
 export const contactsRouter = Router();
 
-// GET /api/contacts
+// GET /api/contacts - List all contacts for user
 contactsRouter.get('/', authenticateToken, async (req: Request, res: Response) => {
   const user = (req as any).user;
   try {
     const contacts = await db.query(`
-      SELECT id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at
+      SELECT id, user_id, name, phone, email, relationship, is_primary, notification_preference,
+             verification_status, priority_order, consent_token, created_at, updated_at
       FROM trusted_contacts
       WHERE user_id = ?
-      ORDER BY is_primary DESC, created_at DESC
+      ORDER BY priority_order ASC, is_primary DESC, created_at DESC
     `, [user.id]);
 
     return res.json({ success: true, contacts });
@@ -25,10 +25,10 @@ contactsRouter.get('/', authenticateToken, async (req: Request, res: Response) =
   }
 });
 
-// POST /api/contacts
+// POST /api/contacts - Add new contact & trigger consent SMS
 contactsRouter.post('/', authenticateToken, async (req: Request, res: Response) => {
   const user = (req as any).user;
-  const { name, phone, email, relationship, notificationPreference } = req.body;
+  const { name, phone, email, relationship, notificationPreference, priorityOrder } = req.body;
 
   if (!name || !phone) {
     return res.status(400).json({ success: false, error: 'Name and phone number are required.' });
@@ -39,50 +39,133 @@ contactsRouter.post('/', authenticateToken, async (req: Request, res: Response) 
     return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit phone number.' });
   }
 
+  const formattedPhone = formatE164Phone(phone);
+
   try {
     // Check duplicate
     const existing = await db.queryOne('SELECT id FROM trusted_contacts WHERE user_id = ? AND phone LIKE ?', [user.id, `%${cleanPhone.slice(-10)}`]);
     if (existing) {
-      return res.status(409).json({ success: false, error: 'A contact with this phone number already exists.' });
+      return res.status(409).json({ success: false, error: 'A contact with this phone number already exists in your safety circle.' });
     }
 
     const contactId = `cnt_${uuidv4()}`;
+    const consentToken = `cns_${uuidv4().substring(0, 8)}`;
     const now = new Date().toISOString();
+    const order = priorityOrder ? parseInt(priorityOrder, 10) : 1;
 
     await db.execute(`
-      INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO trusted_contacts (
+        id, user_id, name, phone, email, relationship, is_primary,
+        notification_preference, verification_status, priority_order, consent_token, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)
     `, [
       contactId,
       user.id,
       name.trim(),
-      phone.trim(),
-      email ? email.trim().toLowerCase() : 'contact@family.com',
+      formattedPhone,
+      email ? email.trim().toLowerCase() : 'guardian@nirbhaya.ai',
       relationship || 'Guardian',
       0,
       notificationPreference || 'SMS & App',
+      order,
+      consentToken,
       now,
       now
     ]);
 
+    // Send Consent SMS via Twilio
+    const userRecord = await db.queryOne<any>('SELECT name FROM users WHERE id = ?', [user.id]);
+    const senderName = userRecord?.name || 'A family member';
+
+    const consentResult = await sendEmergencySms({
+      incidentId: `consent_${contactId}`,
+      toPhone: formattedPhone,
+      userName: senderName,
+      messageType: 'CONSENT_REQUEST',
+    });
+
     const newContact = await db.queryOne('SELECT * FROM trusted_contacts WHERE id = ?', [contactId]);
-    return res.status(201).json({ success: true, contact: newContact });
+    return res.status(201).json({
+      success: true,
+      contact: newContact,
+      consentSent: consentResult.success,
+      consentStatus: consentResult.status,
+      consentMessage: consentResult.success
+        ? 'Consent SMS dispatched to contact'
+        : (consentResult.reason || consentResult.error || 'Failed to dispatch consent SMS')
+    });
   } catch (err: any) {
     console.error('[Contacts API] Error creating contact:', err);
     return res.status(500).json({ success: false, error: 'Failed to save contact to database.' });
   }
 });
 
-// PUT /api/contacts/:id
+// POST /api/contacts/:id/send-consent - Resend consent request SMS
+contactsRouter.post('/:id/send-consent', authenticateToken, async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const { id } = req.params;
+
+  try {
+    const contact = await db.queryOne<any>('SELECT * FROM trusted_contacts WHERE id = ? AND user_id = ?', [id, user.id]);
+    if (!contact) {
+      return res.status(404).json({ success: false, error: 'Contact not found.' });
+    }
+
+    const userRecord = await db.queryOne<any>('SELECT name FROM users WHERE id = ?', [user.id]);
+    const senderName = userRecord?.name || 'A family member';
+
+    const consentResult = await sendEmergencySms({
+      incidentId: `consent_${contact.id}`,
+      toPhone: contact.phone,
+      userName: senderName,
+      messageType: 'CONSENT_REQUEST',
+    });
+
+    return res.json({
+      success: consentResult.success,
+      status: consentResult.status,
+      message: consentResult.success
+        ? `Consent SMS sent to ${contact.name}`
+        : (consentResult.reason || consentResult.error || 'Failed to dispatch SMS')
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/contacts/:id/verify - Confirm verification (testing / manual confirmation)
+contactsRouter.post('/:id/verify', authenticateToken, async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const { id } = req.params;
+
+  try {
+    const contact = await db.queryOne<any>('SELECT * FROM trusted_contacts WHERE id = ? AND user_id = ?', [id, user.id]);
+    if (!contact) {
+      return res.status(404).json({ success: false, error: 'Contact not found.' });
+    }
+
+    const now = new Date().toISOString();
+    await db.execute("UPDATE trusted_contacts SET verification_status = 'VERIFIED', updated_at = ? WHERE id = ?", [now, id]);
+
+    const updated = await db.queryOne('SELECT * FROM trusted_contacts WHERE id = ?', [id]);
+    return res.json({ success: true, message: `${contact.name} verified successfully.`, contact: updated });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/contacts/:id - Update contact details / priority order
 contactsRouter.put('/:id', authenticateToken, async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { name, phone, email, relationship, notificationPreference, isPrimary } = req.body;
+  const { name, phone, email, relationship, notificationPreference, isPrimary, verificationStatus, priorityOrder } = req.body;
 
   try {
     const existing = await db.queryOne('SELECT id FROM trusted_contacts WHERE id = ?', [id]);
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Contact not found.' });
     }
+
+    const formattedPhone = phone ? formatE164Phone(phone) : null;
 
     await db.execute(`
       UPDATE trusted_contacts
@@ -92,15 +175,19 @@ contactsRouter.put('/:id', authenticateToken, async (req: Request, res: Response
           relationship = COALESCE(?, relationship),
           notification_preference = COALESCE(?, notification_preference),
           is_primary = COALESCE(?, is_primary),
+          verification_status = COALESCE(?, verification_status),
+          priority_order = COALESCE(?, priority_order),
           updated_at = ?
       WHERE id = ?
     `, [
       name || null,
-      phone || null,
+      formattedPhone,
       email || null,
       relationship || null,
       notificationPreference || null,
       isPrimary !== undefined ? (isPrimary ? 1 : 0) : null,
+      verificationStatus || null,
+      priorityOrder !== undefined ? parseInt(priorityOrder, 10) : null,
       new Date().toISOString(),
       id
     ]);
@@ -113,7 +200,7 @@ contactsRouter.put('/:id', authenticateToken, async (req: Request, res: Response
   }
 });
 
-// DELETE /api/contacts/:id
+// DELETE /api/contacts/:id - Remove contact
 contactsRouter.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -121,61 +208,9 @@ contactsRouter.delete('/:id', authenticateToken, async (req: Request, res: Respo
     if (result.changes === 0) {
       return res.status(404).json({ success: false, error: 'Contact not found.' });
     }
-    return res.json({ success: true, message: 'Contact successfully deleted.' });
+    return res.json({ success: true, message: 'Contact removed from safety network.' });
   } catch (err: any) {
     console.error('[Contacts API] Error deleting contact:', err);
     return res.status(500).json({ success: false, error: 'Failed to delete contact.' });
-  }
-});
-
-// POST /api/contacts/:id/test-alert
-contactsRouter.post('/:id/test-alert', authenticateToken, async (req: Request, res: Response) => {
-  const { id } = req.params;
-  try {
-    const contact = await db.queryOne<any>('SELECT * FROM trusted_contacts WHERE id = ?', [id]);
-    if (!contact) {
-      return res.status(404).json({ success: false, error: 'Contact not found.' });
-    }
-
-    const testIncidentCode = `TEST-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    // Try real SMS
-    const smsResult = await sendEmergencySms({
-      incidentId: 'test_drill',
-      toPhone: contact.phone,
-      incidentCode: testIncidentCode,
-      locationName: 'Simulated User Location (Test Alert Drill)',
-      latitude: 28.6315,
-      longitude: 77.2167,
-      trackingUrl: `${req.protocol}://${req.get('host')}/live-tracking?drill=true`
-    });
-
-    // Try real Email if email exists
-    let emailResult = { success: false, error: 'No email specified' };
-    if (contact.email) {
-      emailResult = await sendEmergencyEmail({
-        incidentId: 'test_drill',
-        toEmail: contact.email,
-        incidentCode: testIncidentCode,
-        locationName: 'Designated Test Location (Manual Contact Drill)',
-        latitude: 28.6315,
-        longitude: 77.2167,
-        accuracy: 12,
-        emergencyStatus: 'TEST DRILL ALERT',
-        trackingUrl: `${req.protocol}://${req.get('host')}/live-tracking?drill=true`,
-        isDemo: true,
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: 'Test alert initiated.',
-      contactName: contact.name,
-      sms: smsResult,
-      email: emailResult,
-    });
-  } catch (err: any) {
-    console.error('[Contacts API] Test alert error:', err);
-    return res.status(500).json({ success: false, error: 'Failed to execute test alert.' });
   }
 });

@@ -18,7 +18,8 @@ import {
   Settings,
   LogOut,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -155,6 +156,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onCloseMobile }) => {
 
       {/* Bottom Profile and Settings */}
       <div className="p-3 border-t border-white/[0.08] space-y-2 bg-navy-900/60">
+        <NavLink to="/about" onClick={navClick} className={navItemClass}>
+          <Info className="w-4 h-4 text-purple-400" />
+          <span>About & Limits</span>
+        </NavLink>
+
         <NavLink to="/settings" onClick={navClick} className={navItemClass}>
           <Settings className="w-4 h-4 text-slate-400" />
           <span>Settings</span>

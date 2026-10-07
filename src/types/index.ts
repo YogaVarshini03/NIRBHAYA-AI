@@ -24,6 +24,8 @@ export interface Contact {
   notificationPreference: 'SMS & App' | 'Push Only' | 'Call Priority' | 'All Channels';
   isEmergencyContact?: boolean;
   isPrimary?: boolean;
+  verification_status?: 'VERIFIED' | 'PENDING' | 'REJECTED';
+  priority_order?: number;
 }
 
 export interface RiskFactors {

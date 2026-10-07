@@ -25,6 +25,7 @@ export const AppLayout: React.FC = () => {
     if (path.includes('/analytics/system')) return 'System Node Health & Architecture';
     if (path.includes('/analytics')) return 'Safety Analytics & Metrics';
     if (path.includes('/settings')) return 'System Settings & Privacy';
+    if (path.includes('/about') || path.includes('/limits')) return 'About & System Limits';
     return 'Safety Command Overview';
   };
 

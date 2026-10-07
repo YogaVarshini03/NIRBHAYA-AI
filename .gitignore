@@ -1,5 +1,7 @@
 # Environment variables
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 
@@ -11,17 +13,23 @@ dist/
 dist-ssr/
 *.local
 
-# Database & Vault
+# Database & SQLite files
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
+*.sqlite
+*.sqlite3
+*.db
 server/uploads/*
 !server/uploads/.gitkeep
+
+# Logs and scratch files
+*.log
+logs/
+scratch/
 
 # Editor & OS files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-*.log
-scratch/

@@ -13,6 +13,7 @@ import { LandingPage } from './pages/landing/LandingPage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
+import { PublicTrackingPage } from './pages/tracking/PublicTrackingPage';
 
 // Protected App pages
 import { UserDashboard } from './pages/dashboard/UserDashboard';
@@ -35,6 +36,7 @@ import { IncidentDetailPage } from './pages/responder/IncidentDetailPage';
 import { SafetyAnalyticsPage } from './pages/analytics/SafetyAnalyticsPage';
 import { IncidentHeatmapPage } from './pages/analytics/IncidentHeatmapPage';
 import { SystemMonitoringPage } from './pages/analytics/SystemMonitoringPage';
+import { AboutLimitsPage } from './pages/about/AboutLimitsPage';
 
 // Protected Route Guard
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -83,6 +85,8 @@ export const App: React.FC = () => {
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/track/:token" element={<PublicTrackingPage />} />
+                <Route path="/tracking/:token" element={<PublicTrackingPage />} />
 
                 {/* Authenticated Application Shell */}
                 <Route
@@ -102,6 +106,8 @@ export const App: React.FC = () => {
                   <Route path="/contacts" element={<RoleRoute allowedRoles={['USER']}><TrustedContactsPage /></RoleRoute>} />
                   <Route path="/history" element={<SafetyHistoryPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/about" element={<AboutLimitsPage />} />
+                  <Route path="/limits" element={<AboutLimitsPage />} />
 
                   {/* Responder Command Routes */}
                   <Route path="/responder" element={<RoleRoute allowedRoles={['RESPONDER']}><ResponderDashboard /></RoleRoute>} />

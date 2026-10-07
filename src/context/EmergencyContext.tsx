@@ -254,7 +254,13 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
         } else if (voiceResult.status === 'CONNECTED') {
           voiceText = `Call: CONNECTED`;
         } else if (voiceResult.status === 'BLOCKED') {
-          voiceText = `Call: BLOCKED (Trial Caller ID restriction)`;
+          if (voiceResult.reason?.includes('573003') || voiceResult.error?.includes('573003')) {
+            voiceText = `Call: Blocked by Twilio trial (573003)`;
+          } else if (voiceResult.reason?.includes('Voice disabled')) {
+            voiceText = `Call: Voice disabled (trial limitation)`;
+          } else {
+            voiceText = `Call: BLOCKED (Trial Caller ID restriction)`;
+          }
         } else if (voiceResult.status === 'NOT CONFIGURED') {
           voiceText = `Call: NOT CONFIGURED`;
         } else {
@@ -304,7 +310,13 @@ export const EmergencyProvider: React.FC<{ children: ReactNode }> = ({ children 
         if (voiceResult.status === 'INITIATED' || voiceResult.status === 'CONNECTED') {
           showToast(`📞 Voice call initiated to ${voiceResult.recipient}`, 'success');
         } else if (voiceResult.status === 'BLOCKED') {
-          showToast(`⚠️ Voice call BLOCKED: Twilio Trial unverified caller ID`, 'warning', 6000);
+          if (voiceResult.reason?.includes('573003') || voiceResult.error?.includes('573003')) {
+            showToast(`⚠️ Voice call: Blocked by Twilio trial (573003)`, 'warning', 6000);
+          } else if (voiceResult.reason?.includes('Voice disabled')) {
+            showToast(`ℹ️ Voice disabled (trial limitation)`, 'info', 5000);
+          } else {
+            showToast(`⚠️ Voice call BLOCKED: Twilio Trial unverified caller ID`, 'warning', 6000);
+          }
         } else if (voiceResult.status !== 'NOT CONFIGURED') {
           showToast(`✕ Voice call failed: ${voiceResult.error}`, 'error', 6000);
         }

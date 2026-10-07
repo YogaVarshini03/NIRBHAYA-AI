@@ -1,13 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs';
 import { sendEmergencySms } from '../services/smsService';
-import { sendEmergencyEmail } from '../services/emailService';
 import { initiateEmergencyVoiceCall } from '../services/voiceService';
+import { getNearestPoliceStations, PoliceStationInfo } from '../services/policeService';
 import { broadcastToAll, broadcastToIncident } from '../websocket';
-import { EmergencyIncidentRecord, IncidentStatus, TrustedContactRecord } from '../types';
-
-import { authenticateToken } from './auth';
+import { EmergencyIncidentRecord } from '../types';
 
 export const emergencyRouter = Router();
 
@@ -21,7 +20,19 @@ async function logIncidentEvent(incidentId: string, event: string, actor: string
   `, [eventId, incidentId, event, actor, now, JSON.stringify(metadata)]);
 }
 
-// POST /api/emergency/create - Trigger SOS / Create Incident
+// GET /api/emergency/police-stations - Query nearest police stations
+emergencyRouter.get('/police-stations', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const lat = parseFloat(req.query.lat as string) || 11.0168;
+    const lng = parseFloat(req.query.lng as string) || 76.9558;
+    const stations = await getNearestPoliceStations(lat, lng);
+    res.json({ success: true, stations });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/emergency/create - Trigger SOS / Dispatch Emergency
 emergencyRouter.post('/create', async (req: Request, res: Response): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
@@ -40,10 +51,12 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
       userId = demoUser ? demoUser.id : 'USR-7F42A91C';
     }
 
-    // Verify user exists in database to satisfy foreign key constraint
-    const existingDbUser = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE id = ?', [userId]);
+    const existingDbUser = await db.queryOne<{ id: string; name: string; phone: string; language?: string }>(
+      'SELECT id, name, phone, language FROM users WHERE id = ?',
+      [userId]
+    );
     if (!existingDbUser) {
-      const firstUser = await db.queryOne<{ id: string }>('SELECT id FROM users LIMIT 1');
+      const firstUser = await db.queryOne<{ id: string; name: string; phone: string; language?: string }>('SELECT id, name, phone, language FROM users LIMIT 1');
       userId = firstUser ? firstUser.id : 'USR-7F42A91C';
     }
 
@@ -54,17 +67,23 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
       locationName = 'Live GPS Coordinates',
       triggerType = 'MANUAL_SOS',
       riskScore = 88,
+      batteryLevel = 85,
     } = req.body;
 
     if (latitude === undefined || longitude === undefined || typeof latitude !== 'number' || typeof longitude !== 'number') {
       res.status(400).json({
         success: false,
-        error: 'GPS unavailable — valid device latitude and longitude are required to trigger a real SOS.',
+        error: 'GPS location coordinates are required to dispatch emergency services.',
       });
       return;
     }
 
-    // Duplicate Emergency Prevention (Rule 6 & 13)
+    const userRecord = await db.queryOne<any>('SELECT * FROM users WHERE id = ?', [userId]);
+    const userName = userRecord?.name || 'NIRBHAYA AI User';
+    const userPhone = userRecord?.phone || '';
+    const userLang = (userRecord?.language as 'en' | 'ta') || 'en';
+
+    // Duplicate check: if active incident exists, update its coordinates
     const existingActive = await db.queryOne<any>(`
       SELECT * FROM emergency_incidents
       WHERE user_id = ? AND status NOT IN ('RESOLVED', 'CLOSED', 'CANCELLED')
@@ -72,20 +91,13 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
     `, [userId]);
 
     if (existingActive) {
-      console.log(`[Emergency] Active incident ${existingActive.id} already in progress for user ${userId}. Synchronizing location.`);
+      console.log(`[Emergency] Active incident ${existingActive.id} exists. Updating live telemetry.`);
       await db.execute(`
         UPDATE emergency_incidents 
         SET latitude = ?, longitude = ?, accuracy = ?, updated_at = ?
         WHERE id = ?
       `, [latitude, longitude, accuracy, new Date().toISOString(), existingActive.id]);
 
-      // Record location update
-      await db.execute(`
-        INSERT INTO location_updates (id, incident_id, user_id, latitude, longitude, accuracy, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [`loc_${uuidv4()}`, existingActive.id, userId, latitude, longitude, accuracy, new Date().toISOString()]);
-
-      // Find active tracking token
       const session = await db.queryOne<any>(`
         SELECT token FROM tracking_sessions WHERE incident_id = ? AND status = 'ACTIVE' LIMIT 1
       `, [existingActive.id]);
@@ -96,67 +108,79 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
         trackingToken: session ? session.token : `trk_${existingActive.id}`,
         alreadyActive: true,
         notificationResults: [],
-        message: `Incident ${existingActive.id} already active. Live telemetry synchronized.`
+        message: `Incident ${existingActive.id} is already in progress. Live telemetry synchronized.`
       });
       return;
     }
 
-    // Generate dynamic unique Incident ID
+    // Generate Incident ID & Tracking Token
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const incidentId = `NG-${randomSuffix}`;
+    const trackingToken = `trk_${uuidv4().replace(/-/g, '')}`;
+    const trackingSessionId = `ses_${uuidv4()}`;
     const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(); // 6 hours expiry (Rule Phase 1C)
+    const appBase = (process.env.APP_BASE_URL || 'http://localhost:5173').replace(/\/$/, '');
+    const trackingUrl = `${appBase}/track/${trackingToken}`;
 
     const riskLevel = riskScore >= 80 ? 'CRITICAL' : riskScore >= 60 ? 'HIGH' : riskScore >= 30 ? 'MODERATE' : 'LOW';
 
-    // 1. Insert incident into database with initial status CREATED
+    // Query nearest police stations using Overpass OSM API + local fallback
+    const nearestStations = await getNearestPoliceStations(latitude, longitude);
+    const primaryPoliceStation = nearestStations[0] || null;
+
+    // 1. Insert Incident Row
     await db.execute(`
       INSERT INTO emergency_incidents (
-        id, user_id, status, risk_level, risk_score, latitude, longitude, accuracy, location_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, user_id, status, risk_level, risk_score, latitude, longitude, accuracy, location_name,
+        police_station_name, police_station_phone, nearest_stations_json, created_at, updated_at
+      ) VALUES (?, ?, 'CREATED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       incidentId,
       userId,
-      'CREATED',
       riskLevel,
       riskScore,
       latitude,
       longitude,
       accuracy,
       locationName,
+      primaryPoliceStation?.name || 'Local Police Station',
+      primaryPoliceStation?.phone || '100',
+      JSON.stringify(nearestStations),
       now,
       now
     ]);
 
-    await logIncidentEvent(incidentId, 'INCIDENT_CREATED', 'USER', { triggerType, latitude, longitude, accuracy });
-
-    // 2. Transition: LOCATION_ACQUIRED
-    await db.execute(`UPDATE emergency_incidents SET status = 'LOCATION_ACQUIRED', updated_at = ? WHERE id = ?`, [now, incidentId]);
-    await logIncidentEvent(incidentId, 'LOCATION_ACQUIRED', 'SYSTEM', { latitude, longitude, accuracy });
-
-    // Record initial location update
-    await db.execute(`
-      INSERT INTO location_updates (id, incident_id, user_id, latitude, longitude, accuracy, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [`loc_${uuidv4()}`, incidentId, userId, latitude, longitude, accuracy, now]);
-
-    // 3. Create live tracking session with secure token
-    const trackingToken = `trk_${uuidv4().replace(/-/g, '')}`;
-    const trackingSessionId = `ses_${uuidv4()}`;
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours expiry
-    const trackingUrl = `/live-tracking?token=${trackingToken}&incident=${incidentId}`;
-
+    // 2. Create 6-Hour Public Tracking Session
     await db.execute(`
       INSERT INTO tracking_sessions (id, user_id, incident_id, token, status, started_at, expires_at)
       VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)
     `, [trackingSessionId, userId, incidentId, trackingToken, now, expiresAt]);
 
-    // 4. Retrieve trusted contacts for this user (seeded with 9345596322 & saranyarajendran2612@gmail.com)
-    const contacts = await db.query<TrustedContactRecord>('SELECT * FROM trusted_contacts WHERE user_id = ?', [userId]);
+    // 3. Record Initial GPS Breadcrumb
+    await db.execute(`
+      INSERT INTO location_updates (id, incident_id, user_id, latitude, longitude, accuracy, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [`loc_${uuidv4()}`, incidentId, userId, latitude, longitude, accuracy, now]);
 
-    const user = await db.queryOne<any>('SELECT * FROM users WHERE id = ?', [userId]);
-    const userName = user ? user.name : 'NIRBHAYA AI User';
+    await logIncidentEvent(incidentId, 'INCIDENT_CREATED', 'USER', { triggerType, latitude, longitude, accuracy, batteryLevel });
 
-    // 5. Notify Contacts via Real Voice Call, Real SMS, and Real Email
+    // 4. Retrieve verified trusted contacts in priority order
+    let contacts = await db.query<any>(`
+      SELECT * FROM trusted_contacts 
+      WHERE user_id = ? AND verification_status = 'VERIFIED'
+      ORDER BY priority_order ASC, is_primary DESC
+    `, [userId]);
+
+    // Fallback: If no contacts are explicitly marked VERIFIED, take all user contacts to ensure safety in test drills
+    if (contacts.length === 0) {
+      contacts = await db.query<any>(`
+        SELECT * FROM trusted_contacts 
+        WHERE user_id = ?
+        ORDER BY priority_order ASC, is_primary DESC
+      `, [userId]);
+    }
+
     const notificationResults: Array<{
       type: string;
       recipient: string;
@@ -166,127 +190,290 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
       providerMessageId?: string;
     }> = [];
 
-    // Prioritize primary contact for real voice call
-    let voiceAttempted = false;
+    // 5. Send Parallel SMS, Voice Calls, and Police Dispatch concurrently (Fault Isolated)
+    const dispatchTasks: Promise<void>[] = [];
 
-    for (let i = 0; i < contacts.length; i++) {
-      const contact = contacts[i];
-
-      // A. Real Automated Voice Call to primary contact (Section 6, 7, 8, 9)
-      if (contact.phone && (!voiceAttempted || contact.is_primary)) {
-        voiceAttempted = true;
-        const voiceResult = await initiateEmergencyVoiceCall({
-          incidentId,
-          toPhone: contact.phone,
-          recipientName: contact.name,
-          userName,
-          locationName,
-          trackingUrl,
-        });
-
-        notificationResults.push({
-          type: 'VOICE',
-          recipient: contact.phone,
-          status: voiceResult.status,
-          error: voiceResult.error,
-          reason: voiceResult.reason,
-          providerMessageId: voiceResult.callSid,
-        });
-      }
-
-      // B. Real SMS if phone is present (Target: 9345596322)
+    // 5a. Contact SMS Dispatches
+    for (const contact of contacts) {
       if (contact.phone) {
-        const smsResult = await sendEmergencySms({
-          incidentId,
-          toPhone: contact.phone,
-          incidentCode: incidentId,
-          locationName,
-          latitude,
-          longitude,
-          trackingUrl,
-        });
-
-        notificationResults.push({
-          type: 'SMS',
-          recipient: contact.phone,
-          status: smsResult.status,
-          error: smsResult.error,
-          reason: smsResult.reason,
-          providerMessageId: smsResult.providerMessageId,
-        });
-      }
-
-      // C. Real Email if email is present (Target: saranyarajendran2612@gmail.com)
-      if (contact.email) {
-        const emailResult = await sendEmergencyEmail({
-          incidentId,
-          toEmail: contact.email,
-          incidentCode: incidentId,
-          locationName,
-          latitude,
-          longitude,
-          accuracy,
-          emergencyStatus: 'ACTIVE DISTRESS',
-          trackingUrl,
-        });
-
-        notificationResults.push({
-          type: 'EMAIL',
-          recipient: contact.email,
-          status: emailResult.status,
-          error: emailResult.error,
-          providerMessageId: emailResult.providerMessageId,
-        });
+        dispatchTasks.push((async () => {
+          try {
+            const smsRes = await sendEmergencySms({
+              incidentId,
+              toPhone: contact.phone,
+              userName,
+              userPhone,
+              locationName,
+              latitude,
+              longitude,
+              trackingUrl,
+              batteryLevel,
+              messageType: 'EMERGENCY_SOS',
+            });
+            notificationResults.push({
+              type: 'SMS',
+              recipient: contact.phone,
+              status: smsRes.status,
+              error: smsRes.error,
+              reason: smsRes.reason,
+              providerMessageId: smsRes.providerMessageId,
+            });
+          } catch (err: any) {
+            notificationResults.push({
+              type: 'SMS',
+              recipient: contact.phone,
+              status: 'FAILED',
+              error: err?.message || 'SMS dispatch exception',
+            });
+          }
+        })());
       }
     }
 
-    // 6. Transition: ACKNOWLEDGED & CONTACTS_NOTIFIED
-    await db.execute(`UPDATE emergency_incidents SET status = 'ACKNOWLEDGED', updated_at = ? WHERE id = ?`, [now, incidentId]);
-    await logIncidentEvent(incidentId, 'ACKNOWLEDGED', 'SYSTEM', { count: contacts.length, results: notificationResults });
-    await logIncidentEvent(incidentId, 'CONTACTS_NOTIFIED', 'SYSTEM', { count: contacts.length, results: notificationResults });
+    // 5b. Outbound Voice Call to Primary Contact with sequential failover
+    if (contacts.length > 0 && contacts[0].phone) {
+      const primaryContact = contacts[0];
+      dispatchTasks.push((async () => {
+        try {
+          const voiceRes = await initiateEmergencyVoiceCall({
+            incidentId,
+            toPhone: primaryContact.phone,
+            recipientName: primaryContact.name,
+            userName,
+            userPhone,
+            locationName,
+            language: userLang,
+          });
 
-    // 7. Transition: LIVE_TRACKING active
-    await db.execute(`UPDATE emergency_incidents SET status = 'CREATED', updated_at = ? WHERE id = ?`, [now, incidentId]);
-    await logIncidentEvent(incidentId, 'RESPONDER_NOTIFIED', 'SYSTEM', { channel: 'RESPONDER_NETWORK_WEBSOCKET' });
-    await logIncidentEvent(incidentId, 'LIVE_TRACKING_STARTED', 'SYSTEM', { trackingToken });
+          notificationResults.push({
+            type: 'VOICE',
+            recipient: primaryContact.phone,
+            status: voiceRes.status,
+            error: voiceRes.error,
+            reason: voiceRes.reason,
+            providerMessageId: voiceRes.callSid,
+          });
 
-    // Fetch the updated incident record
+          // If contact 1 fails or is rejected, failover to call contact 2 immediately
+          if (!voiceRes.success && contacts.length > 1 && contacts[1].phone) {
+            console.log(`[Emergency] Contact 1 voice call failed. Failing over to Contact 2 (${contacts[1].name})...`);
+            const voiceRes2 = await initiateEmergencyVoiceCall({
+              incidentId,
+              toPhone: contacts[1].phone,
+              recipientName: contacts[1].name,
+              userName,
+              userPhone,
+              locationName,
+              language: userLang,
+            });
+
+            notificationResults.push({
+              type: 'VOICE_FAILOVER',
+              recipient: contacts[1].phone,
+              status: voiceRes2.status,
+              error: voiceRes2.error,
+              reason: voiceRes2.reason,
+              providerMessageId: voiceRes2.callSid,
+            });
+          }
+        } catch (err: any) {
+          notificationResults.push({
+            type: 'VOICE',
+            recipient: primaryContact.phone,
+            status: 'FAILED',
+            error: err?.message || 'Voice dispatch exception',
+          });
+        }
+      })());
+    }
+
+    // 5c. Police Notification (SMS + Voice to nearest station / DEMO_POLICE_NUMBER)
+    if (primaryPoliceStation && primaryPoliceStation.phone) {
+      dispatchTasks.push((async () => {
+        try {
+          const policeSmsRes = await sendEmergencySms({
+            incidentId,
+            toPhone: primaryPoliceStation.phone,
+            userName,
+            userPhone,
+            locationName,
+            latitude,
+            longitude,
+            trackingUrl,
+            messageType: 'POLICE_DISPATCH',
+          });
+
+          notificationResults.push({
+            type: 'POLICE_SMS',
+            recipient: primaryPoliceStation.name,
+            status: policeSmsRes.status,
+            error: policeSmsRes.error,
+            reason: policeSmsRes.reason,
+            providerMessageId: policeSmsRes.providerMessageId,
+          });
+        } catch (err: any) {
+          notificationResults.push({
+            type: 'POLICE_SMS',
+            recipient: primaryPoliceStation.name,
+            status: 'FAILED',
+            error: err?.message || 'Police SMS dispatch exception',
+          });
+        }
+      })());
+
+      dispatchTasks.push((async () => {
+        try {
+          const policeVoiceRes = await initiateEmergencyVoiceCall({
+            incidentId,
+            toPhone: primaryPoliceStation.phone,
+            recipientName: primaryPoliceStation.name,
+            userName,
+            userPhone,
+            locationName,
+            isPoliceCall: true,
+          });
+
+          notificationResults.push({
+            type: 'POLICE_VOICE',
+            recipient: primaryPoliceStation.name,
+            status: policeVoiceRes.status,
+            error: policeVoiceRes.error,
+            reason: policeVoiceRes.reason,
+            providerMessageId: policeVoiceRes.callSid,
+          });
+        } catch (err: any) {
+          notificationResults.push({
+            type: 'POLICE_VOICE',
+            recipient: primaryPoliceStation.name,
+            status: 'FAILED',
+            error: err?.message || 'Police voice dispatch exception',
+          });
+        }
+      })());
+    }
+
+    // Wait for all parallel dispatch tasks to settle safely
+    await Promise.allSettled(dispatchTasks);
+
+    // Fetch updated incident
     const incident = await db.queryOne<EmergencyIncidentRecord>('SELECT * FROM emergency_incidents WHERE id = ?', [incidentId]);
 
-    // 8. Real-time broadcast to all connected responders & clients
+    // Real-time broadcast to connected clients & responder command
     broadcastToAll({
       type: 'EMERGENCY_TRIGGERED',
       incident,
       trackingToken,
+      nearestStations,
       notificationResults,
     });
 
     res.status(201).json({
       success: true,
-      message: 'Emergency incident created and dispatched across network',
+      message: 'Emergency incident dispatched successfully.',
       incident,
       trackingToken,
-      trackingSessionId,
+      trackingUrl,
+      nearestStations,
       notificationResults,
+      demoMode: process.env.DEMO_MODE !== 'false',
     });
   } catch (error: any) {
-    console.error('[Emergency] Error creating emergency incident:', error);
+    console.error('[Emergency] Error triggering SOS:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to initiate emergency protocol',
+      message: 'Failed to initiate emergency protocol.',
       error: error.message,
     });
   }
 });
 
-// GET /api/emergency/active - Active incidents for responder command center
+// POST /api/emergency/:id/cancel - User Cancels SOS with PIN & Sends False Alarm SMS
+emergencyRouter.post('/:id/cancel', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { pin = '', reason = 'Cancelled by user with PIN' } = req.body;
+
+    const incident = await db.queryOne<any>('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
+    if (!incident) {
+      res.status(404).json({ success: false, message: 'Incident not found' });
+      return;
+    }
+
+    const user = await db.queryOne<any>('SELECT * FROM users WHERE id = ?', [incident.user_id]);
+    const storedPinHash = user?.pin_hash;
+
+    // Verify PIN (default is '1234')
+    let pinValid = false;
+    if (storedPinHash) {
+      pinValid = bcrypt.compareSync(pin.trim(), storedPinHash);
+    } else if (pin.trim() === '1234') {
+      pinValid = true;
+    }
+
+    if (!pinValid) {
+      console.warn(`[Emergency] Invalid PIN attempt for incident ${id} (Provided: ${pin})`);
+      await logIncidentEvent(id, 'CANCEL_FAILED_INVALID_PIN', 'USER', { enteredPin: '****' });
+      res.status(401).json({
+        success: false,
+        error: 'Invalid PIN. Emergency cancellation aborted. SOS remains active.',
+      });
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    // Mark incident as CANCELLED
+    await db.execute(`
+      UPDATE emergency_incidents
+      SET status = 'CANCELLED',
+          resolved_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `, [now, now, id]);
+
+    // Deactivate live tracking token immediately
+    await db.execute(`UPDATE tracking_sessions SET status = 'EXPIRED' WHERE incident_id = ?`, [id]);
+    await logIncidentEvent(id, 'INCIDENT_CANCELLED', 'USER', { reason, pinVerified: true, timestamp: now });
+
+    // Send "False alarm, I am safe" SMS to contacts
+    const contacts = await db.query<any>('SELECT * FROM trusted_contacts WHERE user_id = ?', [incident.user_id]);
+    const falseAlarmResults: any[] = [];
+
+    for (const c of contacts) {
+      if (c.phone) {
+        const faRes = await sendEmergencySms({
+          incidentId: id,
+          toPhone: c.phone,
+          userName: user?.name || 'User',
+          messageType: 'FALSE_ALARM',
+        });
+        falseAlarmResults.push({ recipient: c.phone, status: faRes.status });
+      }
+    }
+
+    const updated = await db.queryOne('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
+    broadcastToIncident(id, { type: 'INCIDENT_CANCELLED', incidentId: id, reason, timestamp: now });
+    broadcastToAll({ type: 'INCIDENT_RESOLVED', incident: updated });
+
+    res.json({
+      success: true,
+      message: 'SOS successfully cancelled with PIN. False alarm SMS dispatched to contacts.',
+      incident: updated,
+      falseAlarmResults,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/emergency/active - Responder Active Incidents
 emergencyRouter.get('/active', async (req: Request, res: Response): Promise<void> => {
   try {
     const incidents = await db.query(`
       SELECT e.*, u.name as user_name, u.phone as user_phone
       FROM emergency_incidents e
       LEFT JOIN users u ON e.user_id = u.id
-      WHERE e.status NOT IN ('RESOLVED', 'CLOSED')
+      WHERE e.status NOT IN ('RESOLVED', 'CLOSED', 'CANCELLED')
       ORDER BY e.created_at DESC
     `);
 
@@ -300,7 +487,7 @@ emergencyRouter.get('/active', async (req: Request, res: Response): Promise<void
   }
 });
 
-// GET /api/emergency/:id - Single incident details with history & notifications
+// GET /api/emergency/:id - Single incident details
 emergencyRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -319,8 +506,14 @@ emergencyRouter.get('/:id', async (req: Request, res: Response): Promise<void> =
     const events = await db.query('SELECT * FROM incident_events WHERE incident_id = ? ORDER BY timestamp ASC', [id]);
     const notifications = await db.query('SELECT * FROM notifications WHERE incident_id = ? ORDER BY created_at DESC', [id]);
     const locations = await db.query('SELECT * FROM location_updates WHERE incident_id = ? ORDER BY timestamp ASC', [id]);
-    const evidence = await db.query('SELECT * FROM evidence_records WHERE incident_id = ? ORDER BY created_at DESC', [id]);
     const trackingSession = await db.queryOne('SELECT * FROM tracking_sessions WHERE incident_id = ? AND status = "ACTIVE"', [id]);
+
+    let nearestStations: PoliceStationInfo[] = [];
+    if (incident.nearest_stations_json) {
+      try {
+        nearestStations = JSON.parse(incident.nearest_stations_json);
+      } catch (e) {}
+    }
 
     res.json({
       success: true,
@@ -328,15 +521,15 @@ emergencyRouter.get('/:id', async (req: Request, res: Response): Promise<void> =
       events,
       notifications,
       locationHistory: locations,
-      evidence,
       trackingSession,
+      nearestStations,
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// POST /api/emergency/:id/acknowledge - Responder acknowledges incident
+// POST /api/emergency/:id/acknowledge - Responder Acknowledge
 emergencyRouter.post('/:id/acknowledge', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -350,163 +543,38 @@ emergencyRouter.post('/:id/acknowledge', async (req: Request, res: Response): Pr
     broadcastToIncident(id, { type: 'INCIDENT_ACKNOWLEDGED', incidentId: id, responderName, timestamp: now });
     broadcastToAll({ type: 'INCIDENT_UPDATED', incident: updated });
 
-    res.json({ success: true, message: 'Incident acknowledged by operations desk', incident: updated });
+    res.json({ success: true, message: 'Incident acknowledged by responder.', incident: updated });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// POST /api/emergency/:id/accept - Responder accepts incident
+// POST /api/emergency/:id/accept - Responder Accept
 emergencyRouter.post('/:id/accept', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const {
-      responderId = 'RSP-1042',
-      responderName = 'Officer Arjun Kumar (Application Responder)',
-      responderBadge = 'APP-RSP-1042',
-      responderLat,
-      responderLng,
-    } = req.body;
-
+    const { responderId = 'RSP-1042', responderName = 'Officer Arjun Kumar', responderBadge = 'APP-RSP-1042' } = req.body;
     const now = new Date().toISOString();
 
     await db.execute(`
       UPDATE emergency_incidents
-      SET status = 'RESPONDER_ACCEPTED',
-          responder_id = ?,
-          responder_name = ?,
-          responder_badge = ?,
-          responder_latitude = ?,
-          responder_longitude = ?,
-          updated_at = ?
+      SET status = 'RESPONDER_ACCEPTED', responder_id = ?, responder_name = ?, responder_badge = ?, updated_at = ?
       WHERE id = ?
-    `, [responderId, responderName, responderBadge, responderLat || null, responderLng || null, now, id]);
+    `, [responderId, responderName, responderBadge, now, id]);
 
-    await logIncidentEvent(id, 'RESPONDER_ACCEPTED', responderName, { responderId, responderBadge, responderLat, responderLng, timestamp: now });
-
+    await logIncidentEvent(id, 'RESPONDER_ACCEPTED', responderName, { responderId, responderBadge, timestamp: now });
     const updated = await db.queryOne('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
 
-    broadcastToIncident(id, {
-      type: 'RESPONDER_ACCEPTED',
-      incidentId: id,
-      responderName,
-      responderBadge,
-      responderLat,
-      responderLng,
-      timestamp: now,
-    });
+    broadcastToIncident(id, { type: 'RESPONDER_ACCEPTED', incidentId: id, responderName, responderBadge, timestamp: now });
     broadcastToAll({ type: 'INCIDENT_UPDATED', incident: updated });
 
-    res.json({ success: true, message: 'Incident accepted by responder', incident: updated });
+    res.json({ success: true, message: 'Incident accepted by responder.', incident: updated });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// POST /api/emergency/:id/en-route - Responder is en route to emergency scene
-emergencyRouter.post('/:id/en-route', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const incident = await db.queryOne<EmergencyIncidentRecord>('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
-
-    if (!incident) {
-      res.status(404).json({ success: false, message: 'Incident not found' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    await db.execute(`UPDATE emergency_incidents SET status = 'EN_ROUTE', updated_at = ? WHERE id = ?`, [now, id]);
-    await logIncidentEvent(id, 'EN_ROUTE', incident.responder_name || 'Responder', {
-      destination: { lat: incident.latitude, lng: incident.longitude },
-      timestamp: now
-    });
-
-    const updated = await db.queryOne('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
-
-    broadcastToIncident(id, {
-      type: 'RESPONDER_EN_ROUTE',
-      incidentId: id,
-      timestamp: now,
-    });
-    broadcastToAll({ type: 'INCIDENT_UPDATED', incident: updated });
-
-    res.json({ success: true, message: 'Responder status updated to EN_ROUTE', incident: updated });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// POST /api/emergency/:id/navigate - Responder starts turn-by-turn navigation (transitions to EN_ROUTE)
-emergencyRouter.post('/:id/navigate', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const incident = await db.queryOne<EmergencyIncidentRecord>('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
-
-    if (!incident) {
-      res.status(404).json({ success: false, message: 'Incident not found' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    await db.execute(`UPDATE emergency_incidents SET status = 'EN_ROUTE', updated_at = ? WHERE id = ?`, [now, id]);
-    await logIncidentEvent(id, 'EN_ROUTE', incident.responder_name || 'Responder', {
-      destination: { lat: incident.latitude, lng: incident.longitude },
-      navigationStarted: true,
-      timestamp: now
-    });
-
-    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${incident.latitude},${incident.longitude}&travelmode=driving`;
-
-    broadcastToIncident(id, {
-      type: 'RESPONDER_NAVIGATING',
-      incidentId: id,
-      timestamp: now,
-      googleMapsUrl,
-    });
-    broadcastToAll({ type: 'INCIDENT_UPDATED', incident: { ...incident, status: 'EN_ROUTE' } });
-
-    res.json({
-      success: true,
-      message: 'Responder navigation initiated',
-      googleMapsUrl,
-      incident: { ...incident, status: 'EN_ROUTE' },
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// POST /api/emergency/:id/on-scene - Responder arrives on scene
-emergencyRouter.post('/:id/on-scene', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const incident = await db.queryOne<EmergencyIncidentRecord>('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
-
-    if (!incident) {
-      res.status(404).json({ success: false, message: 'Incident not found' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    await db.execute(`UPDATE emergency_incidents SET status = 'ON_SCENE', updated_at = ? WHERE id = ?`, [now, id]);
-    await logIncidentEvent(id, 'ON_SCENE', incident.responder_name || 'Responder', { timestamp: now });
-
-    const updated = await db.queryOne('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
-
-    broadcastToIncident(id, {
-      type: 'RESPONDER_ON_SCENE',
-      incidentId: id,
-      timestamp: now,
-    });
-    broadcastToAll({ type: 'INCIDENT_UPDATED', incident: updated });
-
-    res.json({ success: true, message: 'Responder arrived ON_SCENE', incident: updated });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// POST /api/emergency/:id/resolve - Resolve incident
+// POST /api/emergency/:id/resolve - Responder Resolve
 emergencyRouter.post('/:id/resolve', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -515,87 +583,18 @@ emergencyRouter.post('/:id/resolve', async (req: Request, res: Response): Promis
 
     await db.execute(`
       UPDATE emergency_incidents
-      SET status = 'RESOLVED',
-          resolved_at = ?,
-          updated_at = ?
+      SET status = 'RESOLVED', resolved_at = ?, updated_at = ?
       WHERE id = ?
     `, [now, now, id]);
 
-    // Expire live tracking session
     await db.execute(`UPDATE tracking_sessions SET status = 'EXPIRED' WHERE incident_id = ?`, [id]);
-
     await logIncidentEvent(id, 'INCIDENT_RESOLVED', resolvedBy, { notes, timestamp: now });
 
     const updated = await db.queryOne('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
-
-    broadcastToIncident(id, {
-      type: 'INCIDENT_RESOLVED',
-      incidentId: id,
-      resolvedBy,
-      timestamp: now,
-    });
+    broadcastToIncident(id, { type: 'INCIDENT_RESOLVED', incidentId: id, resolvedBy, timestamp: now });
     broadcastToAll({ type: 'INCIDENT_RESOLVED', incident: updated });
 
     res.json({ success: true, message: 'Incident marked as resolved. Live tracking expired.', incident: updated });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// POST /api/emergency/:id/cancel - User cancels emergency
-emergencyRouter.post('/:id/cancel', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { id } = req.params;
-    const { reason = 'Cancelled by user' } = req.body;
-    const now = new Date().toISOString();
-
-    await db.execute(`
-      UPDATE emergency_incidents
-      SET status = 'CANCELLED',
-          resolved_at = ?,
-          updated_at = ?
-      WHERE id = ?
-    `, [now, now, id]);
-
-    await db.execute(`UPDATE tracking_sessions SET status = 'EXPIRED' WHERE incident_id = ?`, [id]);
-    await logIncidentEvent(id, 'INCIDENT_CANCELLED', 'USER', { reason, timestamp: now });
-
-    const updated = await db.queryOne('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
-    broadcastToIncident(id, { type: 'INCIDENT_CANCELLED', incidentId: id, reason, timestamp: now });
-    broadcastToAll({ type: 'INCIDENT_RESOLVED', incident: updated });
-
-    res.json({ success: true, message: 'Incident cancelled', incident: updated });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// POST /api/emergency/test-call - Controlled voice call test (Section 30)
-emergencyRouter.post('/test-call', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { phone = '9345596322', recipientName = 'Saranya' } = req.body;
-    const now = new Date().toISOString();
-
-    console.log(`[Emergency API] Controlled single voice call test requested for ${phone}`);
-
-    const result = await initiateEmergencyVoiceCall({
-      incidentId: 'TEST-CALL',
-      toPhone: phone,
-      recipientName,
-      userName: 'Nirbhaya AI Verification System',
-      locationName: 'Test Verification Facility',
-      isTestCall: true,
-    });
-
-    res.json({
-      success: result.success,
-      status: result.status,
-      callSid: result.callSid,
-      provider: result.provider,
-      error: result.error,
-      reason: result.reason,
-      timestamp: now,
-    });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }

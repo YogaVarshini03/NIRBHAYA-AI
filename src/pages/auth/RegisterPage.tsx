@@ -270,7 +270,7 @@ IMPORTANT: Keep this key secure. You will need it to unlock your Secure Evidence
                   required
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="+91 98765 43210"
+                  placeholder="+91XXXXXXXXXX"
                   className="w-full pl-10 pr-3 py-2 rounded-xl bg-navy-950/80 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none"
                 />
               </div>
@@ -285,7 +285,7 @@ IMPORTANT: Keep this key secure. You will need it to unlock your Secure Evidence
                   required
                   value={formData.emergencyContact}
                   onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })}
-                  placeholder="+91 98765 11223 (Mother)"
+                  placeholder="+91XXXXXXXXXX (Mother)"
                   className="w-full pl-10 pr-3 py-2 rounded-xl bg-navy-950/80 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none"
                 />
               </div>

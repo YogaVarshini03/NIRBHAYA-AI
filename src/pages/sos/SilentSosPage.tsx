@@ -14,7 +14,8 @@ import {
   Flashlight,
   MessageSquare,
   PhoneCall,
-  Activity
+  Activity,
+  Phone
 } from 'lucide-react';
 import { useEmergency } from '../../context/EmergencyContext';
 import { SosHoldButton } from '../../components/sos/SosHoldButton';
@@ -23,6 +24,7 @@ import { Button } from '../../components/common/Button';
 import { useToast } from '../../context/ToastContext';
 import { hardwareSafetyService } from '../../services/hardwareSafetyService';
 import { locationService } from '../../services/locationService';
+import { contactService } from '../../services/contactService';
 
 export const SilentSosPage: React.FC = () => {
   const { triggerSos } = useEmergency();
@@ -31,6 +33,12 @@ export const SilentSosPage: React.FC = () => {
   const [voiceDetectedText, setVoiceDetectedText] = useState('');
   const [hardwareState, setHardwareState] = useState(() => hardwareSafetyService.getState());
   const recognitionRef = useRef<any>(null);
+
+  // Retrieve primary emergency contact for manual call button
+  const primaryContact = contactService.getContacts().find(c => c.isEmergencyContact) || contactService.getContacts()[0];
+  const rawGuardianPhone = primaryContact?.phone || '';
+  const primaryGuardianPhone = (rawGuardianPhone && !rawGuardianPhone.includes('X')) ? rawGuardianPhone.replace(/[^\d+]/g, '') : '';
+  const guardianName = primaryContact?.name || 'Guardian';
 
   // Accelerometer shake detection state
   const [shakeCount, setShakeCount] = useState(0);
@@ -192,6 +200,32 @@ export const SilentSosPage: React.FC = () => {
           <p className="text-sm text-slate-400">
             Discreet multi-channel distress triggers designed for zero-screen interaction in high-threat scenarios.
           </p>
+        </div>
+
+        {/* Always Visible Direct Emergency Call Actions */}
+        <div className="flex items-center gap-2.5">
+          <a
+            href="tel:112"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-lg shadow-red-600/30 transition active:scale-95"
+          >
+            <PhoneCall className="w-4 h-4 animate-pulse" />
+            <span>Call 112 Now</span>
+          </a>
+
+          <a
+            href={primaryGuardianPhone ? `tel:${primaryGuardianPhone}` : '#'}
+            onClick={(e) => {
+              if (!primaryGuardianPhone) {
+                e.preventDefault();
+                showToast('No verified guardian phone number configured.', 'warning');
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-lg shadow-amber-600/30 transition active:scale-95"
+            title={primaryGuardianPhone ? `Call Guardian (${guardianName}: ${primaryGuardianPhone})` : 'No guardian number configured'}
+          >
+            <Phone className="w-4 h-4" />
+            <span>Call Guardian ({guardianName.split(' ')[0]})</span>
+          </a>
         </div>
       </div>
 

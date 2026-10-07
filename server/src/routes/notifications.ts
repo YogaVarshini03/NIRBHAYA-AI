@@ -14,8 +14,8 @@ notificationsRouter.post('/test', async (req: Request, res: Response): Promise<v
     const {
       sendTestMessage = false,
       target = 'BOTH', // 'SMS' | 'EMAIL' | 'BOTH'
-      testPhone = '9345596322',
-      testEmail = 'saranyarajendran2612@gmail.com',
+      testPhone = process.env.DEMO_POLICE_NUMBER || '',
+      testEmail = process.env.DEMO_EMAIL || '',
     } = req.body;
 
     const accountSid = process.env.SMS_PROVIDER_ACCOUNT_SID;

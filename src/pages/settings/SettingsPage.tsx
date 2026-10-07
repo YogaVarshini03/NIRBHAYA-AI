@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Settings,
   Bell,
@@ -16,7 +17,9 @@ import {
   KeyRound,
   Copy,
   Check,
-  Trash2
+  Trash2,
+  Info,
+  ExternalLink
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -442,6 +445,33 @@ export const SettingsPage: React.FC = () => {
                 ))}
               </div>
             </div>
+          </div>
+        </Card>
+
+        {/* System Limits & Prototype Notice */}
+        <Card variant="glass" className="p-6 space-y-4 lg:col-span-2 border-amber-500/30 bg-gradient-to-r from-amber-950/20 to-neutral-900">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">
+                <Info className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">System Limits & Twilio Gateway Operating Notice</h4>
+                <p className="text-xs text-amber-200/80 mt-0.5">
+                  Automated voice calls need a paid Twilio account; the prototype runs on a trial account.
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  SMS dispatch, live GPS breadcrumbs, and manual 112/Guardian direct dial remain 100% active in parallel.
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/about"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-navy-800 hover:bg-navy-700 text-purple-300 text-xs font-semibold border border-purple-500/30 transition shrink-0"
+            >
+              <span>View About & Limits</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
           </div>
         </Card>
       </div>
