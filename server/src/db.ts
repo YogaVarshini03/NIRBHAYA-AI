@@ -354,6 +354,17 @@ async function initMySQLTables() {
       confidence INT,
       created_at VARCHAR(64) NOT NULL,
       INDEX idx_risk_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+    `CREATE TABLE IF NOT EXISTS police_stations (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      phone VARCHAR(64) NOT NULL,
+      latitude DOUBLE NOT NULL,
+      longitude DOUBLE NOT NULL,
+      district VARCHAR(128) NOT NULL,
+      address TEXT,
+      created_at VARCHAR(64) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`
   ];
 
