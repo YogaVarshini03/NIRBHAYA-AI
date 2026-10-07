@@ -638,7 +638,7 @@ async function seedDefaultData() {
   // 4. Seed primary trusted test contact for demo user
   const user = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
   if (user) {
-    const contactCheck = await db.queryOne<{ id: string }>('SELECT id FROM trusted_contacts WHERE user_id = ? AND phone = ?', [user.id, '+91XXXXXXXXXX']);
+    const contactCheck = await db.queryOne<{ id: string }>('SELECT id FROM trusted_contacts WHERE id = ?', ['cnt_test_primary_01']);
     if (!contactCheck) {
       await db.execute(
         `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, verification_status, priority_order, created_at, updated_at)
@@ -660,7 +660,7 @@ async function seedDefaultData() {
       );
       console.log('[Database] Seeded primary emergency contact (+91XXXXXXXXXX / guardian@example.com) as VERIFIED');
     } else {
-      await db.execute("UPDATE trusted_contacts SET verification_status = 'VERIFIED', priority_order = 1 WHERE id = ?", [contactCheck.id]);
+      await db.execute("UPDATE trusted_contacts SET name = 'Primary Emergency Guardian', phone = '+91XXXXXXXXXX', email = 'guardian@example.com', verification_status = 'VERIFIED', priority_order = 1, is_primary = 1, updated_at = ? WHERE id = ?", [now, 'cnt_test_primary_01']);
     }
   }
 
@@ -729,7 +729,7 @@ async function seedDefaultData() {
   const seedKey = async (email: string, rawKey: string) => {
     const userRow = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', [email]);
     if (!userRow) return;
-    const existing = await db.queryOne<{ id: string }>('SELECT id FROM access_keys WHERE user_id = ? AND status = ?', [userRow.id, 'ACTIVE']);
+    const existing = await db.queryOne<{ id: string }>('SELECT id FROM access_keys WHERE id = ?', [`ak_${userRow.id}`]);
     if (!existing) {
       const keyHash = bcrypt.hashSync(rawKey, salt);
       const prefix = rawKey.substring(0, 8); // e.g. NIR-7F42
