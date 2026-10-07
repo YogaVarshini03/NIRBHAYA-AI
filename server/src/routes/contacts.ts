@@ -108,7 +108,7 @@ contactsRouter.post('/:id/send-consent', authenticateToken, async (req: Request,
   try {
     const contact = await db.queryOne<any>('SELECT * FROM trusted_contacts WHERE id = ? AND user_id = ?', [id, user.id]);
     if (!contact) {
-      return res.status(404).json({ success: false, error: 'Contact not found.' });
+      return res.status(404).json({ success: false, error: 'Contact not found on server.' });
     }
 
     const userRecord = await db.queryOne<any>('SELECT name FROM users WHERE id = ?', [user.id]);
@@ -121,12 +121,20 @@ contactsRouter.post('/:id/send-consent', authenticateToken, async (req: Request,
       messageType: 'CONSENT_REQUEST',
     });
 
+    const isTrialBlock = consentResult.status === 'BLOCKED' ||
+      (consentResult.reason && consentResult.reason.toLowerCase().includes('trial')) ||
+      (consentResult.error && consentResult.error.toLowerCase().includes('trial'));
+
+    const displayMsg = consentResult.success
+      ? `Consent SMS sent to ${contact.name}`
+      : (isTrialBlock
+          ? 'SMS blocked by Twilio trial (Trial accounts cannot send SMS to Indian numbers. Use "Verify (Drill)" to verify)'
+          : (consentResult.reason || consentResult.error || 'Failed to dispatch SMS'));
+
     return res.json({
       success: consentResult.success,
       status: consentResult.status,
-      message: consentResult.success
-        ? `Consent SMS sent to ${contact.name}`
-        : (consentResult.reason || consentResult.error || 'Failed to dispatch SMS')
+      message: displayMsg
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
