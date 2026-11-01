@@ -135,6 +135,7 @@ app.get('/api/health', async (req, res) => {
     status: 'ONLINE',
     system: 'NIRBHAYA AI Real-time Production Safety Platform',
     appMode: process.env.APP_MODE || 'production',
+    demoMode: Boolean(process.env.DEMO_MODE === 'true' || process.env.VITE_DEMO_MODE === 'true'),
     environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString(),
     services: {
@@ -152,6 +153,14 @@ app.get('/api/health', async (req, res) => {
       incidents: incidentCount ? incidentCount.count : 0,
     },
     mapProvider: 'Leaflet (OpenStreetMap / Esri World Dark Gray)',
+  });
+});
+
+// JSON 404 catch-all for any unhandled /api/* routes (prevents HTML error leakage)
+app.all(/^\/api\/.*/, (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `API endpoint ${req.method} ${req.path} not found.`
   });
 });
 

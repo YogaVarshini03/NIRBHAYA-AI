@@ -23,12 +23,13 @@ import {
   Phone
 } from 'lucide-react';
 import { useEmergency } from '../../context/EmergencyContext';
+import { useAuth } from '../../context/AuthContext';
 import { Button } from '../common/Button';
 import { locationService } from '../../services/locationService';
 import { contactService } from '../../services/contactService';
 import { hardwareSafetyService } from '../../services/hardwareSafetyService';
 import { useToast } from '../../context/ToastContext';
-import { apiUrl, getAppBaseUrl } from '../../services/apiConfig';
+import { apiUrl, getAppBaseUrl, safeFetchJson } from '../../services/apiConfig';
 
 export const EmergencyWorkflowModal: React.FC = () => {
   const {
@@ -39,6 +40,7 @@ export const EmergencyWorkflowModal: React.FC = () => {
     notificationResults,
     workflowError,
   } = useEmergency();
+  const { verifyPin } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -127,31 +129,33 @@ export const EmergencyWorkflowModal: React.FC = () => {
     try {
       if (isCountingDown) {
         // Cancelled before dispatch timeout
-        if (countdownTimerRef.current) {
-          clearInterval(countdownTimerRef.current);
-          countdownTimerRef.current = null;
-        }
-
-        if (enteredPin.trim() === '1234') {
+        const pinCheck = await verifyPin(enteredPin.trim());
+        if (pinCheck.success) {
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+          }
           showToast('SOS cancelled before dispatch with verified PIN.', 'info');
           closeEmergencyModal();
         } else {
-          setPinError('Incorrect PIN. Dispatch proceeding.');
+          setPinError(pinCheck.error || 'Incorrect PIN. Dispatch proceeding.');
         }
       } else {
         // Dispatched: Call backend cancellation route with PIN
-        const res = await fetch(apiUrl(`/api/emergency/${activeIncident.id}/cancel`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pin: enteredPin.trim(), reason: 'User entered cancellation PIN' }),
-        });
+        const res = await safeFetchJson<{ success: boolean; error?: string }>(
+          `/api/emergency/${activeIncident?.id || 'STANDBY'}/cancel`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin: enteredPin.trim(), reason: 'User entered cancellation PIN' }),
+          }
+        );
 
-        const data = await res.json();
-        if (res.ok && data.success) {
+        if (res.ok && res.data?.success) {
           showToast('✓ SOS cancelled. False-alarm SMS sent to guardians.', 'success', 5000);
           closeEmergencyModal();
         } else {
-          setPinError(data.error || 'Incorrect Emergency PIN. Cancellation denied.');
+          setPinError(res.error || res.data?.error || 'Incorrect Emergency PIN. Cancellation denied.');
         }
       }
     } catch (e: any) {
@@ -242,7 +246,7 @@ export const EmergencyWorkflowModal: React.FC = () => {
                 maxLength={6}
                 value={enteredPin}
                 onChange={(e) => setEnteredPin(e.target.value)}
-                placeholder="Enter 4-digit PIN (1234)"
+                placeholder="Enter 4-digit PIN"
                 className="flex-1 px-3 py-2 rounded-xl bg-neutral-950 border border-red-500/40 text-center font-mono text-lg text-white placeholder-neutral-600 focus:outline-none focus:border-red-400"
               />
               <Button

@@ -26,11 +26,14 @@ import { useAuth } from '../../context/AuthContext';
 
 export const LandingPage: React.FC = () => {
   const navigate = useNavigate();
-  const { loginAsDemoUser } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   const handleEnterDashboard = () => {
-    loginAsDemoUser();
-    navigate('/dashboard');
+    if (isAuthenticated) {
+      navigate('/dashboard');
+    } else {
+      navigate('/register');
+    }
   };
 
   const howItWorks = [
@@ -136,7 +139,7 @@ export const LandingPage: React.FC = () => {
               onClick={handleEnterDashboard}
               rightIcon={<ArrowRight className="w-4 h-4" />}
             >
-              Explore Demo
+              Get Started
             </Button>
           </div>
         </div>
@@ -152,7 +155,7 @@ export const LandingPage: React.FC = () => {
           <div className="text-center max-w-3xl mx-auto space-y-6">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs font-semibold shadow-glow-violet animate-in fade-in">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span>National Hackathon Showcase Prototype</span>
+              <span>Real-Time Autonomous Safety Platform</span>
             </div>
 
             <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white tracking-tight leading-[1.1]">
@@ -175,7 +178,7 @@ export const LandingPage: React.FC = () => {
                 className="w-full sm:w-auto font-bold shadow-glow-violet"
                 rightIcon={<ChevronRight className="w-5 h-5" />}
               >
-                Get Started
+                Create Safety Profile
               </Button>
               <Button
                 variant="secondary"
@@ -183,7 +186,7 @@ export const LandingPage: React.FC = () => {
                 onClick={() => navigate('/login')}
                 className="w-full sm:w-auto"
               >
-                Explore Demo
+                Sign In to Network
               </Button>
               <Button
                 variant="glass"

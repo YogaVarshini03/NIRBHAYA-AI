@@ -607,75 +607,52 @@ function initSQLiteTables() {
 }
 
 async function seedDefaultData() {
-  const salt = bcrypt.genSaltSync(10);
   const now = new Date().toISOString();
 
-  // 1. Seed primary user (ABHISHEK K / USR-7F42A91C)
-  const defaultPinHash = bcrypt.hashSync('1234', salt);
-  const existingUser = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
-  if (!existingUser) {
-    const passwordHash = bcrypt.hashSync('demo1234', salt);
-    await db.execute(
-      'INSERT INTO users (id, name, email, password_hash, phone, role, created_at, pin_hash, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      ['USR-7F42A91C', 'Abhishek K', 'demo@nirbhaya.ai', passwordHash, '+91 93455 96322', 'USER', now, defaultPinHash, 'en']
-    );
-    console.log('[Database] Seeded default user: Abhishek K (USR-7F42A91C)');
-  } else {
-    await db.execute("UPDATE users SET pin_hash = COALESCE(pin_hash, ?) WHERE email = 'demo@nirbhaya.ai'", [defaultPinHash]);
-  }
+  // Production real: Admin and Responder accounts are created strictly from environment variables.
+  // No hardcoded passwords or demo accounts exist in code.
 
-  // 2. Seed responder user (Officer Arjun Kumar / RSP-1042)
-  const existingResponder = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['arjun@police.gov.in']);
-  if (!existingResponder) {
-    const respHash = bcrypt.hashSync('responder1234', salt);
-    await db.execute(
-      'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ['RSP-1042', 'Officer Arjun Kumar (Application Responder)', 'arjun@police.gov.in', respHash, '+91 112 000 1042', 'RESPONDER', now]
-    );
-    console.log('[Database] Seeded default responder: Officer Arjun Kumar (RSP-1042)');
-  }
+  // 1. Optional System Admin auto-creation from env vars
+  if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+    const adminEmail = process.env.ADMIN_EMAIL.trim().toLowerCase();
+    const existingAdmin = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', [adminEmail]);
+    if (!existingAdmin) {
+      const adminId = 'ADM-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+      const passwordHash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
+      const pinHash = process.env.ADMIN_PIN ? bcrypt.hashSync(process.env.ADMIN_PIN, 10) : null;
+      const adminPhone = process.env.ADMIN_PHONE || '+919999999999';
+      const adminName = process.env.ADMIN_NAME || 'System Administrator';
 
-  // 3. Seed admin user (ADM-9001)
-  const existingAdmin = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['admin@nirbhaya.ai']);
-  if (!existingAdmin) {
-    const adminHash = bcrypt.hashSync('admin1234', salt);
-    await db.execute(
-      'INSERT INTO users (id, name, email, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ['ADM-9001', 'Safety Operations Admin', 'admin@nirbhaya.ai', adminHash, '+91XXXXXXXXXX', 'ADMIN', now]
-    );
-    console.log('[Database] Seeded default admin: Safety Operations Admin (ADM-9001)');
-  }
-
-  // 4. Seed primary trusted test contact for demo user
-  const user = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
-  if (user) {
-    const contactCheck = await db.queryOne<{ id: string }>('SELECT id FROM trusted_contacts WHERE id = ?', ['cnt_test_primary_01']);
-    if (!contactCheck) {
       await db.execute(
-        `INSERT INTO trusted_contacts (id, user_id, name, phone, email, relationship, is_primary, notification_preference, verification_status, priority_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          'cnt_test_primary_01',
-          user.id,
-          'Primary Emergency Guardian',
-          '+91XXXXXXXXXX',
-          'guardian@example.com',
-          'Guardian',
-          1,
-          'All Channels',
-          'VERIFIED',
-          1,
-          now,
-          now
-        ]
+        `INSERT INTO users (id, name, email, password_hash, pin_hash, phone, role, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'ADMIN', ?)`,
+        [adminId, adminName, adminEmail, passwordHash, pinHash, adminPhone, now]
       );
-      console.log('[Database] Seeded primary emergency contact (+91XXXXXXXXXX / guardian@example.com) as VERIFIED');
-    } else {
-      await db.execute("UPDATE trusted_contacts SET name = 'Primary Emergency Guardian', phone = '+91XXXXXXXXXX', email = 'guardian@example.com', verification_status = 'VERIFIED', priority_order = 1, is_primary = 1, updated_at = ? WHERE id = ?", [now, 'cnt_test_primary_01']);
+      console.log(`[Database] Initialized system administrator account for ${adminEmail}`);
     }
   }
 
-  // 5. Seed Regional Police Stations for offline / fallback lookup
+  // 2. Optional Emergency Responder auto-creation from env vars
+  if (process.env.RESPONDER_EMAIL && process.env.RESPONDER_PASSWORD) {
+    const responderEmail = process.env.RESPONDER_EMAIL.trim().toLowerCase();
+    const existingResponder = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', [responderEmail]);
+    if (!existingResponder) {
+      const responderId = 'RSP-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+      const passwordHash = bcrypt.hashSync(process.env.RESPONDER_PASSWORD, 10);
+      const pinHash = process.env.RESPONDER_PIN ? bcrypt.hashSync(process.env.RESPONDER_PIN, 10) : null;
+      const responderPhone = process.env.RESPONDER_PHONE || '+919999999998';
+      const responderName = process.env.RESPONDER_NAME || 'Duty Emergency Responder';
+
+      await db.execute(
+        `INSERT INTO users (id, name, email, password_hash, pin_hash, phone, role, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'RESPONDER', ?)`,
+        [responderId, responderName, responderEmail, passwordHash, pinHash, responderPhone, now]
+      );
+      console.log(`[Database] Initialized duty responder account for ${responderEmail}`);
+    }
+  }
+
+  // 3. Seed Regional Police Stations for offline / fallback lookup if needed
   const seededStations = [
     {
       id: 'pol_cbe_b1',
@@ -734,25 +711,5 @@ async function seedDefaultData() {
       );
     }
   }
-  console.log('[Database] Verified & seeded regional police stations.');
-
-  // 6. Seed default NIRBHAYA Access Keys (Section 1)
-  const seedKey = async (email: string, rawKey: string) => {
-    const userRow = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', [email]);
-    if (!userRow) return;
-    const existing = await db.queryOne<{ id: string }>('SELECT id FROM access_keys WHERE id = ?', [`ak_${userRow.id}`]);
-    if (!existing) {
-      const keyHash = bcrypt.hashSync(rawKey, salt);
-      const prefix = rawKey.substring(0, 8); // e.g. NIR-7F42
-      await db.execute(
-        'INSERT INTO access_keys (id, user_id, key_prefix, key_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [`ak_${userRow.id}`, userRow.id, prefix, keyHash, 'ACTIVE', now]
-      );
-      console.log(`[Database] Seeded active access key for ${userRow.id}: ${rawKey}`);
-    }
-  };
-
-  await seedKey('demo@nirbhaya.ai', 'NIR-7F42-SAFE-2026');
-  await seedKey('arjun@police.gov.in', 'NIR-1042-RESP-2026');
-  await seedKey('admin@nirbhaya.ai', 'NIR-9001-ADMN-2026');
 }
+

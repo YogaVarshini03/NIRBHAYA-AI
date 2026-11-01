@@ -9,7 +9,11 @@ export const historyRouter = Router();
 historyRouter.get('/', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const authUser = (req as any).user;
-    const userId = req.query.userId ? String(req.query.userId) : (authUser?.id || 'USR-7F42A91C');
+    const userId = req.query.userId ? String(req.query.userId) : authUser?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
 
     // 1. Fetch user's emergency incidents
     const incidents = await db.query<any>(`
@@ -203,7 +207,11 @@ historyRouter.get('/', authenticateToken, async (req: Request, res: Response): P
 historyRouter.post('/risk', authenticateToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const authUser = (req as any).user;
-    const userId = authUser?.id || req.body.userId || 'USR-7F42A91C';
+    const userId = authUser?.id || req.body.userId;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Authentication required to log risk assessment' });
+      return;
+    }
     const { score, level, factors, latitude, longitude, accuracy, confidence = 85 } = req.body;
 
     if (score === undefined || !level) {

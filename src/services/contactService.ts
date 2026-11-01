@@ -1,40 +1,8 @@
 import { Contact } from '../types';
 import { storageService, StorageKeys } from './storageService';
-import { apiUrl } from './apiConfig';
+import { apiUrl, safeFetchJson } from './apiConfig';
 
-export const DEFAULT_CONTACTS: Contact[] = [
-  {
-    id: 'cnt_test_primary_01',
-    name: 'Primary Emergency Guardian',
-    relationship: 'Guardian',
-    phone: '+91XXXXXXXXXX',
-    online: true,
-    notificationPreference: 'All Channels',
-    verification_status: 'VERIFIED',
-    priority_order: 1,
-    isPrimary: true,
-  },
-  {
-    id: 'cnt_1',
-    name: 'Sunita Sharma',
-    relationship: 'Mother',
-    phone: '+91XXXXXXXXXX',
-    online: true,
-    notificationPreference: 'SMS & App',
-    verification_status: 'PENDING',
-    priority_order: 2,
-  },
-  {
-    id: 'cnt_2',
-    name: 'Rajesh Sharma',
-    relationship: 'Father',
-    phone: '+91XXXXXXXXXX',
-    online: true,
-    notificationPreference: 'Call Priority',
-    verification_status: 'PENDING',
-    priority_order: 3,
-  },
-];
+export const DEFAULT_CONTACTS: Contact[] = [];
 
 function getStoredToken(): string | null {
   if (typeof window !== 'undefined') {
@@ -54,24 +22,21 @@ export const contactService = {
       const headers: Record<string, string> = {};
       if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
-      const res = await fetch(apiUrl('/api/contacts'), { headers });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.contacts && Array.isArray(data.contacts)) {
-          const mapped: Contact[] = data.contacts.map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            relationship: c.relationship || 'Guardian',
-            phone: c.phone,
-            online: true,
-            notificationPreference: c.notification_preference || 'All Channels',
-            verification_status: c.verification_status || 'PENDING',
-            priority_order: c.priority_order || 1,
-            isPrimary: Boolean(c.is_primary),
-          }));
-          this.saveContacts(mapped);
-          return mapped;
-        }
+      const res = await safeFetchJson<{ contacts: any[] }>('/api/contacts', { headers });
+      if (res.ok && res.data?.contacts && Array.isArray(res.data.contacts)) {
+        const mapped: Contact[] = res.data.contacts.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          relationship: c.relationship || 'Guardian',
+          phone: c.phone,
+          online: true,
+          notificationPreference: c.notification_preference || 'All Channels',
+          verification_status: c.verification_status || 'PENDING',
+          priority_order: c.priority_order || 1,
+          isPrimary: Boolean(c.is_primary),
+        }));
+        this.saveContacts(mapped);
+        return mapped;
       }
     } catch (err) {
       console.warn('[contactService] Backend unavailable, using local cache:', err);
@@ -85,58 +50,56 @@ export const contactService = {
 
   async addContact(contact: Omit<Contact, 'id'>, token?: string): Promise<{ success: boolean; contact?: Contact; error?: string; consentMessage?: string }> {
     const list = this.getContacts();
-    const phoneTrimmed = contact.phone.trim();
-    if (list.some(c => c.phone.replace(/\D/g, '') === phoneTrimmed.replace(/\D/g, ''))) {
+    const phoneTrimmed = contact.phone.trim().replace(/[\s\-\(\)]/g, '');
+
+    // Validate country code
+    if (!/^\+[1-9]\d{6,14}$/.test(phoneTrimmed)) {
+      return {
+        success: false,
+        error: 'Phone number must include country code in E.164 format (e.g. +91XXXXXXXXXX).'
+      };
+    }
+
+    if (list.some(c => c.phone.replace(/[\s\-\(\)]/g, '') === phoneTrimmed)) {
       return { success: false, error: 'A contact with this phone number already exists in your safety circle.' };
     }
 
-    try {
-      const activeToken = token || getStoredToken();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
+    const activeToken = token || getStoredToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
-      const res = await fetch(apiUrl('/api/contacts'), {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          name: contact.name,
-          phone: contact.phone,
-          relationship: contact.relationship,
-          notificationPreference: contact.notificationPreference,
-          priorityOrder: contact.priority_order || list.length + 1,
-        }),
-      });
+    const res = await safeFetchJson<{ contact: any; consentMessage?: string; consentSent?: boolean; error?: string }>('/api/contacts', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: contact.name.trim(),
+        phone: phoneTrimmed,
+        relationship: contact.relationship,
+        notificationPreference: contact.notificationPreference,
+        priorityOrder: contact.priority_order || list.length + 1,
+      }),
+    });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.contact) {
-          const newC: Contact = {
-            id: data.contact.id,
-            name: data.contact.name,
-            relationship: data.contact.relationship || 'Guardian',
-            phone: data.contact.phone,
-            online: true,
-            notificationPreference: data.contact.notification_preference || 'All Channels',
-            verification_status: data.contact.verification_status || 'PENDING',
-            priority_order: data.contact.priority_order || list.length + 1,
-          };
-          this.saveContacts([...list, newC]);
-          return { success: true, contact: newC, consentMessage: data.consentMessage };
-        }
-      }
-    } catch (err) {
-      console.warn('[contactService] Backend error on addContact, saving locally:', err);
+    if (res.ok && res.data?.contact) {
+      const dataContact = res.data.contact;
+      const newC: Contact = {
+        id: dataContact.id,
+        name: dataContact.name,
+        relationship: dataContact.relationship || 'Guardian',
+        phone: dataContact.phone,
+        online: true,
+        notificationPreference: dataContact.notification_preference || 'All Channels',
+        verification_status: dataContact.verification_status || 'PENDING',
+        priority_order: dataContact.priority_order || list.length + 1,
+      };
+      this.saveContacts([...list, newC]);
+      return { success: true, contact: newC, consentMessage: res.data.consentMessage };
     }
 
-    const newContact: Contact = {
-      ...contact,
-      id: `cnt_${Date.now()}`,
-      online: true,
-      verification_status: 'PENDING',
-      priority_order: list.length + 1,
+    return {
+      success: false,
+      error: res.error || 'Failed to save emergency contact on server.'
     };
-    this.saveContacts([...list, newContact]);
-    return { success: true, contact: newContact, consentMessage: 'Saved to local safety circle' };
   },
 
   async sendConsentSms(contactId: string): Promise<{ success: boolean; message?: string }> {
@@ -145,28 +108,27 @@ export const contactService = {
       const headers: Record<string, string> = {};
       if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
-      const res = await fetch(apiUrl(`/api/contacts/${contactId}/send-consent`), {
-        method: 'POST',
-        headers,
-      });
+      const res = await safeFetchJson<{ success: boolean; message?: string; error?: string }>(
+        `/api/contacts/${contactId}/send-consent`,
+        {
+          method: 'POST',
+          headers,
+        }
+      );
 
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        return {
-          success: false,
-          message: res.status === 404
-            ? 'Contact not registered on backend. Use "Verify (Drill)" to verify for demo.'
-            : `Server returned an unexpected response (${res.status}).`
-        };
-      }
-
-      const data = await res.json();
       if (!res.ok) {
-        return { success: false, message: data.error || data.message || `Server error (${res.status})` };
+        if (res.status === 404) {
+          return {
+            success: false,
+            message: 'Contact not found on backend. Please ensure the contact was saved to the server.',
+          };
+        }
+        return { success: false, message: res.error || `Server error (${res.status})` };
       }
+
       return {
-        success: Boolean(data.success),
-        message: data.message || (data.success ? 'Consent SMS sent' : 'SMS blocked by Twilio trial')
+        success: Boolean(res.data?.success),
+        message: res.data?.message || (res.data?.success ? 'Consent SMS sent' : 'Consent SMS dispatch failed')
       };
     } catch (e: any) {
       return { success: false, message: e.message || 'Network error sending consent SMS' };
@@ -179,25 +141,23 @@ export const contactService = {
       const headers: Record<string, string> = {};
       if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
-      const res = await fetch(apiUrl(`/api/contacts/${contactId}/verify`), {
-        method: 'POST',
-        headers,
-      });
+      const res = await safeFetchJson<{ success: boolean; message?: string; contact?: any }>(
+        `/api/contacts/${contactId}/verify`,
+        {
+          method: 'POST',
+          headers,
+        }
+      );
 
-      const contentType = res.headers.get('content-type') || '';
       let message = 'Contact verified successfully (Drill mode).';
-      if (contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.message) message = data.message;
-      }
+      if (res.data?.message) message = res.data.message;
 
-      // Always update local cache so "Verify (Drill)" immediately marks verified in UI
+      // Update local cache
       const list = this.getContacts().map(c => c.id === contactId ? { ...c, verification_status: 'VERIFIED' as const } : c);
       this.saveContacts(list);
 
       return { success: true, message };
     } catch (e: any) {
-      // Fallback update in local cache
       const list = this.getContacts().map(c => c.id === contactId ? { ...c, verification_status: 'VERIFIED' as const } : c);
       this.saveContacts(list);
       return { success: true, message: 'Contact verified in local safety circle.' };
@@ -217,7 +177,7 @@ export const contactService = {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
-      await fetch(apiUrl(`/api/contacts/${id}`), {
+      await safeFetchJson(`/api/contacts/${id}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify(updates),
@@ -237,7 +197,7 @@ export const contactService = {
       const headers: Record<string, string> = {};
       if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
 
-      await fetch(apiUrl(`/api/contacts/${id}`), {
+      await safeFetchJson(`/api/contacts/${id}`, {
         method: 'DELETE',
         headers,
       });
@@ -253,3 +213,4 @@ export const contactService = {
     return this.sendConsentSms(contactId);
   }
 };
+

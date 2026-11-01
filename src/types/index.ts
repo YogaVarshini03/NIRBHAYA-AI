@@ -11,6 +11,7 @@ export interface User {
   emergencyContact?: string;
   avatarUrl?: string;
   demoMode?: boolean;
+  hasPin?: boolean;
   createdAt: string;
   updatedAt?: string;
 }

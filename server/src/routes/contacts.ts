@@ -34,12 +34,15 @@ contactsRouter.post('/', authenticateToken, async (req: Request, res: Response) 
     return res.status(400).json({ success: false, error: 'Name and phone number are required.' });
   }
 
-  const cleanPhone = phone.trim().replace(/\D/g, '');
-  if (cleanPhone.length < 10) {
-    return res.status(400).json({ success: false, error: 'Please enter a valid 10-digit phone number.' });
+  const cleanPhone = phone.trim().replace(/[\s\-\(\)]/g, '');
+  if (!/^\+[1-9]\d{6,14}$/.test(cleanPhone)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Phone number must include country code in E.164 format (e.g. +91XXXXXXXXXX).'
+    });
   }
 
-  const formattedPhone = formatE164Phone(phone);
+  const formattedPhone = cleanPhone;
 
   try {
     // Check duplicate
@@ -173,7 +176,17 @@ contactsRouter.put('/:id', authenticateToken, async (req: Request, res: Response
       return res.status(404).json({ success: false, error: 'Contact not found.' });
     }
 
-    const formattedPhone = phone ? formatE164Phone(phone) : null;
+    let formattedPhone: string | null = null;
+    if (phone) {
+      const cleanPhone = phone.trim().replace(/[\s\-\(\)]/g, '');
+      if (!/^\+[1-9]\d{6,14}$/.test(cleanPhone)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Phone number must include country code in E.164 format (e.g. +91XXXXXXXXXX).'
+        });
+      }
+      formattedPhone = cleanPhone;
+    }
 
     await db.execute(`
       UPDATE trusted_contacts

@@ -1,17 +1,28 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, UserRole } from '../types';
-import { apiUrl } from '../services/apiConfig';
+import { safeFetchJson, syncBackendConfig } from '../services/apiConfig';
 import { evidenceService } from '../services/evidenceService';
 import { useToast } from './ToastContext';
+
+interface RegisterData {
+  name: string;
+  email: string;
+  password: string;
+  phone: string;
+  pin: string;
+  role?: UserRole;
+  emergencyContact?: string;
+}
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
-  loginAsDemoUser: () => Promise<void>;
   loginWithCredentials: (email: string, pass: string) => Promise<{ success: boolean; user?: User; error?: string }>;
-  registerUser: (data: { name: string; email: string; password?: string; phone: string; role?: UserRole; emergencyContact?: string }) => Promise<{ success: boolean; user?: User; accessKey?: string; error?: string }>;
+  registerUser: (data: RegisterData) => Promise<{ success: boolean; user?: User; accessKey?: string; error?: string }>;
   updateProfile: (data: { name?: string; phone?: string }) => Promise<{ success: boolean; user?: User; error?: string }>;
+  verifyPin: (pin: string) => Promise<{ success: boolean; error?: string }>;
+  setSafetyPin: (pin: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -53,34 +64,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Validate or restore session from backend on mount
+  // Validate or restore session from backend on mount & sync backend config
   useEffect(() => {
     const initAuth = async () => {
+      // Sync DEMO_MODE and system health from backend
+      syncBackendConfig().catch(() => {});
+
       const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null);
       if (!activeToken) {
-        // Unauthenticated: clean up any stale user state
         clearAuthSession();
         return;
       }
 
       try {
-        const res = await fetch(apiUrl('/api/auth/me'), {
+        const res = await safeFetchJson<{ success: boolean; user: User }>('/api/auth/me', {
           headers: {
             'Authorization': `Bearer ${activeToken}`,
           },
         });
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.user) {
-            setUser(data.user);
-            setToken(activeToken);
-            localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-          } else {
-            clearAuthSession();
-          }
+        if (res.ok && res.data?.success && res.data.user) {
+          setUser(res.data.user);
+          setToken(activeToken);
+          localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
         } else if (res.status === 401 || res.status === 403) {
-          // Token is invalid or expired: clear only auth token and redirect to login
           console.warn('[AuthContext] Session token expired or invalid (HTTP 401/403). Clearing stale auth state.');
           clearAuthSession();
         }
@@ -97,7 +104,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     pass: string
   ): Promise<{ success: boolean; user?: User; error?: string }> => {
     try {
-      const res = await fetch(apiUrl('/api/auth/login'), {
+      const res = await safeFetchJson<{ success: boolean; token: string; user: User; error?: string }>('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -106,21 +113,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
+      if (!res.ok || !res.data?.success) {
         clearAuthSession();
-        const errMsg = data.error || 'Authentication failed. Please verify credentials.';
+        const errMsg = res.error || res.data?.error || 'Authentication failed. Please verify credentials.';
         return { success: false, error: errMsg };
       }
 
-      setToken(data.token);
-      setUser(data.user);
-      localStorage.setItem(TOKEN_KEY, data.token);
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      const { token: newToken, user: newUser } = res.data;
+      setToken(newToken);
+      setUser(newUser);
+      localStorage.setItem(TOKEN_KEY, newToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(newUser));
 
-      showToast(`Welcome back, ${data.user.name}! Authenticated as ${data.user.role}.`, 'success');
-      return { success: true, user: data.user };
+      showToast(`Welcome back, ${newUser.name}! Authenticated as ${newUser.role}.`, 'success');
+      return { success: true, user: newUser };
     } catch (err: any) {
       console.error('[AuthContext] Login error:', err);
       clearAuthSession();
@@ -129,54 +135,98 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const registerUser = async (data: {
-    name: string;
-    email: string;
-    password?: string;
-    phone: string;
-    role?: UserRole;
-    emergencyContact?: string;
-  }): Promise<{ success: boolean; user?: User; accessKey?: string; error?: string }> => {
+  const registerUser = async (data: RegisterData): Promise<{ success: boolean; user?: User; accessKey?: string; error?: string }> => {
     try {
       const payload = {
         name: data.name.trim(),
         email: data.email.trim().toLowerCase(),
-        password: data.password || 'demo1234',
+        password: data.password,
         phone: data.phone.trim(),
+        pin: data.pin.trim(),
         role: data.role || 'USER',
         emergencyContact: data.emergencyContact?.trim(),
       };
 
-      const res = await fetch(apiUrl('/api/auth/register'), {
+      const res = await safeFetchJson<{ success: boolean; token: string; user: User; accessKey: string; error?: string }>('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const resData = await res.json();
-
-      if (!res.ok || !resData.success) {
-        return { success: false, error: resData.error || 'Registration failed.' };
+      if (!res.ok || !res.data?.success) {
+        return { success: false, error: res.error || res.data?.error || 'Registration failed.' };
       }
 
-      setToken(resData.token);
-      setUser(resData.user);
-      localStorage.setItem(TOKEN_KEY, resData.token);
-      localStorage.setItem(USER_KEY, JSON.stringify(resData.user));
+      const { token: newToken, user: newUser, accessKey } = res.data;
+      setToken(newToken);
+      setUser(newUser);
+      localStorage.setItem(TOKEN_KEY, newToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(newUser));
 
-      showToast(`Account registered successfully! Permanent ID: ${resData.user.id}`, 'success');
-      return { success: true, user: resData.user, accessKey: resData.accessKey };
+      showToast(`Account registered successfully! Permanent ID: ${newUser.id}`, 'success');
+      return { success: true, user: newUser, accessKey };
     } catch (err: any) {
       console.error('[AuthContext] Registration error:', err);
       return { success: false, error: err?.message || 'Server error creating safety account.' };
     }
   };
 
-  const loginAsDemoUser = async (): Promise<void> => {
-    // Authenticate demo user against real backend with standard email and password
-    const res = await loginWithCredentials('demo@nirbhaya.ai', 'demo1234');
-    if (!res.success) {
-      showToast(res.error || 'Could not authenticate demo user against server.', 'error');
+  const verifyPin = async (pin: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const activeToken = token || localStorage.getItem(TOKEN_KEY);
+      if (!activeToken) {
+        return { success: false, error: 'Authentication required.' };
+      }
+
+      const res = await safeFetchJson<{ success: boolean; error?: string }>('/api/auth/verify-pin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${activeToken}`,
+        },
+        body: JSON.stringify({ pin: pin.trim() }),
+      });
+
+      if (!res.ok || !res.data?.success) {
+        return { success: false, error: res.error || res.data?.error || 'Incorrect PIN.' };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Error verifying PIN.' };
+    }
+  };
+
+  const setSafetyPin = async (pin: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const activeToken = token || localStorage.getItem(TOKEN_KEY);
+      if (!activeToken) {
+        return { success: false, error: 'Authentication required.' };
+      }
+
+      const res = await safeFetchJson<{ success: boolean; error?: string }>('/api/auth/set-pin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${activeToken}`,
+        },
+        body: JSON.stringify({ pin: pin.trim() }),
+      });
+
+      if (!res.ok || !res.data?.success) {
+        return { success: false, error: res.error || res.data?.error || 'Failed to set safety PIN.' };
+      }
+
+      if (user) {
+        const updatedUser = { ...user, hasPin: true };
+        setUser(updatedUser);
+        localStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
+      }
+
+      showToast('Safety PIN successfully configured!', 'success');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error setting PIN.' };
     }
   };
 
@@ -186,7 +236,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }): Promise<{ success: boolean; user?: User; error?: string }> => {
     try {
       const activeToken = token || localStorage.getItem(TOKEN_KEY);
-      const res = await fetch(apiUrl('/api/auth/profile'), {
+      const res = await safeFetchJson<{ success: boolean; user: User; error?: string }>('/api/auth/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -195,15 +245,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         body: JSON.stringify(data),
       });
 
-      const resData = await res.json();
-      if (!res.ok || !resData.success) {
-        return { success: false, error: resData.error || 'Failed to update profile.' };
+      if (!res.ok || !res.data?.success) {
+        return { success: false, error: res.error || res.data?.error || 'Failed to update profile.' };
       }
 
-      setUser(resData.user);
-      localStorage.setItem(USER_KEY, JSON.stringify(resData.user));
+      setUser(res.data.user);
+      localStorage.setItem(USER_KEY, JSON.stringify(res.data.user));
       showToast('Safety profile updated successfully.', 'success');
-      return { success: true, user: resData.user };
+      return { success: true, user: res.data.user };
     } catch (err: any) {
       return { success: false, error: err?.message || 'Network error updating profile.' };
     }
@@ -221,10 +270,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         user,
         token,
         isAuthenticated: Boolean(user && token),
-        loginAsDemoUser,
         loginWithCredentials,
         registerUser,
         updateProfile,
+        verifyPin,
+        setSafetyPin,
         logout,
       }}
     >
@@ -240,3 +290,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

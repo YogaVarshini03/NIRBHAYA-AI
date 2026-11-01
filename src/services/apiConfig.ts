@@ -124,3 +124,100 @@ export function getWebSocketUrl(): string {
 
   return envWs || 'ws://localhost:5000/ws';
 }
+
+let runtimeDemoMode: boolean | null = null;
+
+/**
+ * Syncs system health and DEMO_MODE setting dynamically from backend (/api/health).
+ */
+export async function syncBackendConfig(): Promise<{ demoMode: boolean; status: string } | null> {
+  try {
+    const res = await safeFetchJson<{ status: string; demoMode?: boolean; appMode?: string }>('/api/health');
+    if (res.ok && res.data) {
+      runtimeDemoMode = Boolean(res.data.demoMode || res.data.appMode === 'demo');
+      return {
+        status: res.data.status,
+        demoMode: runtimeDemoMode,
+      };
+    }
+  } catch (err) {
+    console.warn('[apiConfig] Could not sync backend config:', err);
+  }
+  return null;
+}
+
+/**
+ * Checks if DEMO_MODE safety switch is active.
+ * Fetched from backend /api/health with fallback to build-time environment variable.
+ */
+export function isDemoMode(): boolean {
+  if (runtimeDemoMode !== null) {
+    return runtimeDemoMode;
+  }
+  const envVal = (import.meta as any).env?.VITE_DEMO_MODE;
+  if (envVal !== undefined && envVal !== '') {
+    return envVal === 'true' || envVal === true;
+  }
+  return false;
+}
+
+export interface SafeFetchResult<T = any> {
+  ok: boolean;
+  status: number;
+  data?: T;
+  error?: string;
+}
+
+/**
+ * Safe fetch wrapper that verifies response.ok and Content-Type before parsing JSON,
+ * returning structured errors instead of throwing SyntaxError on HTML or non-JSON responses.
+ */
+export async function safeFetchJson<T = any>(
+  endpointOrUrl: string,
+  options?: RequestInit
+): Promise<SafeFetchResult<T>> {
+  const url = endpointOrUrl.startsWith('http://') || endpointOrUrl.startsWith('https://')
+    ? endpointOrUrl
+    : apiUrl(endpointOrUrl);
+
+  try {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type') || '';
+
+    if (!contentType.includes('application/json')) {
+      const rawText = await res.text().catch(() => '');
+      if (res.status === 401) {
+        return { ok: false, status: 401, error: 'Session expired or unauthenticated. Please sign in again.' };
+      }
+      if (res.status === 403) {
+        return { ok: false, status: 403, error: 'Access denied. You do not have permission for this action.' };
+      }
+      if (res.status === 404) {
+        return { ok: false, status: 404, error: 'Resource or endpoint not found on server.' };
+      }
+      if (res.status >= 500) {
+        return { ok: false, status: res.status, error: `Backend service error (HTTP ${res.status}).` };
+      }
+      return {
+        ok: false,
+        status: res.status,
+        error: rawText.slice(0, 150) || `Server returned unexpected non-JSON response (HTTP ${res.status}).`
+      };
+    }
+
+    const data = await res.json();
+    if (!res.ok) {
+      const errMsg = (data && (data.error || data.message)) || `Request failed with HTTP status ${res.status}`;
+      return { ok: false, status: res.status, data, error: errMsg };
+    }
+
+    return { ok: true, status: res.status, data };
+  } catch (err: any) {
+    return {
+      ok: false,
+      status: 0,
+      error: err?.message || 'Network connection error. Could not connect to backend server.',
+    };
+  }
+}
+

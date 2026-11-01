@@ -26,10 +26,12 @@ export const RegisterPage: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    phone: '',
+    phone: '+91 ',
+    pin: '',
+    confirmPin: '',
     password: '',
     confirmPassword: '',
-    emergencyContact: '',
+    emergencyContact: '+91 ',
     locationPermission: true,
     terms: false,
   });
@@ -91,11 +93,30 @@ IMPORTANT: Keep this key secure. You will need it to unlock your Secure Evidence
       setError('Please enter a valid email address.');
       return;
     }
-    const phoneClean = formData.phone.replace(/\D/g, '');
-    if (phoneClean.length < 10) {
-      setError('Please enter a valid 10-digit phone number.');
+
+    // Strict E.164 validation: must include country code with +
+    const cleanPhone = formData.phone.trim().replace(/[\s\-\(\)]/g, '');
+    if (!/^\+[1-9]\d{6,14}$/.test(cleanPhone)) {
+      setError('Phone number must include country code in E.164 format (e.g. +91XXXXXXXXXX).');
       return;
     }
+
+    const cleanEmergency = formData.emergencyContact.trim().replace(/[\s\-\(\)]/g, '');
+    if (!/^\+[1-9]\d{6,14}$/.test(cleanEmergency)) {
+      setError('Primary guardian phone must include country code in E.164 format (e.g. +91XXXXXXXXXX).');
+      return;
+    }
+
+    if (!/^\d{4,6}$/.test(formData.pin.trim())) {
+      setError('Safety PIN must be a 4-digit number (e.g. 8421).');
+      return;
+    }
+
+    if (formData.pin.trim() !== formData.confirmPin.trim()) {
+      setError('Safety PIN confirmation does not match.');
+      return;
+    }
+
     if (formData.password.length < 6) {
       setError('Password must contain at least 6 characters.');
       return;
@@ -104,22 +125,19 @@ IMPORTANT: Keep this key secure. You will need it to unlock your Secure Evidence
       setError('Passwords do not match.');
       return;
     }
-    if (!formData.emergencyContact.trim()) {
-      setError('Please specify at least one primary emergency contact number.');
-      return;
-    }
     if (!formData.terms) {
-      setError('You must accept the safety privacy terms and simulation disclaimers.');
+      setError('You must accept the safety privacy terms and conditions.');
       return;
     }
 
     setIsLoading(true);
     registerUser({
-      name: formData.name,
-      email: formData.email,
+      name: formData.name.trim(),
+      email: formData.email.trim(),
       password: formData.password,
-      phone: formData.phone,
-      emergencyContact: formData.emergencyContact,
+      phone: cleanPhone,
+      pin: formData.pin.trim(),
+      emergencyContact: cleanEmergency,
       role: 'USER',
     }).then((res) => {
       setIsLoading(false);
@@ -287,6 +305,43 @@ IMPORTANT: Keep this key secure. You will need it to unlock your Secure Evidence
                   onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })}
                   placeholder="+91XXXXXXXXXX (Mother)"
                   className="w-full pl-10 pr-3 py-2 rounded-xl bg-navy-950/80 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Personal Safety PIN <span className="text-purple-400 font-normal">(4 Digits)</span>
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                <input
+                  type="password"
+                  required
+                  maxLength={6}
+                  value={formData.pin}
+                  onChange={(e) => setFormData({ ...formData, pin: e.target.value.replace(/\D/g, '') })}
+                  placeholder="4-digit PIN (e.g. 8421)"
+                  className="w-full pl-10 pr-3 py-2 rounded-xl bg-navy-950/80 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none tracking-widest font-mono"
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">Used to cancel false SOS alarms.</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Confirm Safety PIN</label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                <input
+                  type="password"
+                  required
+                  maxLength={6}
+                  value={formData.confirmPin}
+                  onChange={(e) => setFormData({ ...formData, confirmPin: e.target.value.replace(/\D/g, '') })}
+                  placeholder="Re-enter 4-digit PIN"
+                  className="w-full pl-10 pr-3 py-2 rounded-xl bg-navy-950/80 border border-white/10 text-white text-sm focus:border-purple-500 focus:outline-none tracking-widest font-mono"
                 />
               </div>
             </div>

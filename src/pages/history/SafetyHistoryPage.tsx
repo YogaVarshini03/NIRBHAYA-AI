@@ -196,14 +196,14 @@ export const SafetyHistoryPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              USER IDENTITY: {user?.id || 'USR-7F42A91C'}
+              USER IDENTITY: {user?.id || 'ACTIVE SESSION'}
             </span>
             <span className="text-xs text-slate-400">
               Role: <strong className="text-white uppercase font-mono">{user?.role || 'USER'}</strong>
             </span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
-            {user?.name || 'Abhishek K'} — Safety History
+            {user?.name || 'User'} — Safety History
           </h2>
           <p className="text-sm text-slate-400 mt-1">
             Permanent, audit-logged chronological record of your safety assessments, emergency broadcasts, voice dispatches, and logins.
@@ -367,7 +367,7 @@ export const SafetyHistoryPage: React.FC = () => {
             <ShieldCheck className="w-10 h-10 text-emerald-400 mx-auto" />
             <h4 className="text-base font-bold text-white">No safety history recorded yet for this account</h4>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Account <span className="font-mono text-purple-300 font-semibold">{user?.id || 'USR-7F42A91C'}</span> has zero active distress records in this filter view. All real environmental risk scans, emergency calls, and responder operations will appear here.
+              Account <span className="font-mono text-purple-300 font-semibold">{user?.id || 'Active Account'}</span> has zero active distress records in this filter view. All real environmental risk scans, emergency calls, and responder operations will appear here.
             </p>
           </Card>
         ) : (

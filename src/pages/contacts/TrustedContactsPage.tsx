@@ -15,6 +15,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { contactService } from '../../services/contactService';
+import { isDemoMode } from '../../services/apiConfig';
 import { Contact } from '../../types';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -115,9 +116,9 @@ export const TrustedContactsPage: React.FC = () => {
       setFormError('Name is required.');
       return;
     }
-    const cleanPhone = formData.phone.replace(/\D/g, '');
-    if (cleanPhone.length < 10) {
-      setFormError('Please enter a valid 10-digit phone number.');
+    const cleanPhone = formData.phone.trim().replace(/[\s\-\(\)]/g, '');
+    if (!/^\+[1-9]\d{6,14}$/.test(cleanPhone)) {
+      setFormError('Phone number must include country code in E.164 format (e.g. +91XXXXXXXXXX).');
       return;
     }
 
@@ -125,7 +126,7 @@ export const TrustedContactsPage: React.FC = () => {
       await contactService.updateContact(editingContact.id, {
         name: formData.name.trim(),
         relationship: formData.relationship,
-        phone: formData.phone.trim(),
+        phone: cleanPhone,
         notificationPreference: formData.notificationPreference,
         priority_order: formData.priorityOrder,
       });
@@ -136,7 +137,7 @@ export const TrustedContactsPage: React.FC = () => {
       const res = await contactService.addContact({
         name: formData.name.trim(),
         relationship: formData.relationship,
-        phone: formData.phone.trim(),
+        phone: cleanPhone,
         notificationPreference: formData.notificationPreference,
         online: true,
         priority_order: formData.priorityOrder,
@@ -147,7 +148,7 @@ export const TrustedContactsPage: React.FC = () => {
         return;
       }
 
-      showToast(`Contact saved. ${res.consentMessage || 'Consent SMS sent.'}`, 'success', 5000);
+      showToast(`Contact saved. ${res.consentMessage || 'Consent SMS dispatched.'}`, 'success', 5000);
       setIsAddModalOpen(false);
       refreshContacts();
     }
@@ -267,15 +268,17 @@ export const TrustedContactsPage: React.FC = () => {
                       >
                         Resend Consent SMS
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={actionLoadingId === contact.id}
-                        onClick={() => handleManualVerify(contact)}
-                        className="text-xs border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40"
-                      >
-                        Verify (Drill)
-                      </Button>
+                      {isDemoMode() && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={actionLoadingId === contact.id}
+                          onClick={() => handleManualVerify(contact)}
+                          className="text-xs border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/40"
+                        >
+                          Verify (Drill)
+                        </Button>
+                      )}
                     </>
                   ) : (
                     <Button

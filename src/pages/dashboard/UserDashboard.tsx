@@ -156,7 +156,7 @@ export const UserDashboard: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              ID: {user?.id || 'USR-7F42A91C'}
+              ID: {user?.id || 'ACTIVE SESSION'}
             </span>
             <span className="text-xs text-slate-400">
               Role: <strong className="text-white uppercase font-mono">{user?.role || 'USER'}</strong>

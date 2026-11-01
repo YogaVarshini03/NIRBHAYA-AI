@@ -2,7 +2,7 @@ import { EmergencyIncident, Responder, SafetyEvent } from '../types';
 import { storageService, StorageKeys } from './storageService';
 import { DEFAULT_EVIDENCE } from './evidenceService';
 import { locationService } from './locationService';
-import { apiUrl } from './apiConfig';
+import { apiUrl, safeFetchJson } from './apiConfig';
 import { socketService } from './socketService';
 
 export const DEFAULT_RESPONDER: Responder = {
@@ -62,22 +62,36 @@ export const emergencyService = {
     const accuracy = gps.accuracy;
     const locationName = `Live GPS (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
 
-    // Retrieve active authenticated user ID (Section 1)
-    let currentUserId = 'USR-7F42A91C';
+    // Retrieve active authenticated user ID
+    let currentUserId: string | null = null;
+    let activeToken: string | null = null;
     try {
       const stored = localStorage.getItem('nirbhaya_user_session');
+      activeToken = localStorage.getItem('nirbhaya_auth_token');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed?.id) currentUserId = parsed.id;
       }
     } catch {}
 
-    const endpoint = apiUrl('/api/emergency/create');
-    console.log(`[emergencyService] Sending SOS dispatch to backend for ${currentUserId}: ${endpoint}`);
+    if (!currentUserId) {
+      throw new Error('You must be signed in to trigger an emergency SOS.');
+    }
 
-    const res = await fetch(endpoint, {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`;
+
+    const res = await safeFetchJson<{
+      success: boolean;
+      incident: any;
+      trackingToken?: string;
+      notificationResults?: any[];
+      isRealGps?: boolean;
+      error?: string;
+      message?: string;
+    }>('/api/emergency/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         userId: currentUserId,
         latitude: lat,
@@ -89,20 +103,11 @@ export const emergencyService = {
       }),
     });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      let errMsg = `Backend dispatch failed (HTTP ${res.status})`;
-      try {
-        const parsed = JSON.parse(errText);
-        errMsg = parsed.error || parsed.message || errMsg;
-      } catch (e) {}
-      throw new Error(errMsg);
+    if (!res.ok || !res.data?.success || !res.data.incident) {
+      throw new Error(res.error || res.data?.error || res.data?.message || 'Emergency creation rejected by backend.');
     }
 
-    const data = await res.json();
-    if (!data.success || !data.incident) {
-      throw new Error(data.message || 'Emergency creation rejected by backend');
-    }
+    const data = res.data;
 
     const serverIncident = data.incident;
     const trackingToken = data.trackingToken || `trk_${Date.now()}`;

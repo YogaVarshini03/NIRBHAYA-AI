@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { isDemoMode } from '../../services/apiConfig';
 import { Badge } from '../common/Badge';
 
 interface HeaderProps {
@@ -70,8 +71,19 @@ export const Header: React.FC<HeaderProps> = ({ onOpenMobileMenu, pageTitle }) =
         )}
       </div>
 
-      {/* Center: Global Operational & Network Indicators */}
+      {/* Center: Global Operational & Network Indicators + DEMO Police Safety Switch Banner */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* DEMO_MODE Police-Safety Switch Banner (Requirement 2) */}
+        {isDemoMode() && (
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span>DEMO SAFETY SWITCH ACTIVE</span>
+            <span className="hidden md:inline text-amber-300/80 font-normal">
+              (Police alerts directed to safety demo number)
+            </span>
+          </div>
+        )}
+
         {/* Live Network & Backend Indicator */}
         <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs font-semibold shadow-glow-emerald">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />

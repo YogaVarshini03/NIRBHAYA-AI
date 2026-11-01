@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { MobileNav } from './MobileNav';
 import { EmergencyWorkflowModal } from '../sos/EmergencyWorkflowModal';
+import { ForceSetPinModal } from '../auth/ForceSetPinModal';
 
 export const AppLayout: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -65,6 +66,9 @@ export const AppLayout: React.FC = () => {
 
       {/* Mobile Bottom Navigation */}
       <MobileNav />
+
+      {/* Mandatory Safety PIN configuration modal for accounts without a PIN */}
+      <ForceSetPinModal />
 
       {/* Global Emergency Workflow Simulation Modal */}
       <EmergencyWorkflowModal />

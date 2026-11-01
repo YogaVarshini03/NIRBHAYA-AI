@@ -7,6 +7,7 @@ import { initiateEmergencyVoiceCall } from '../services/voiceService';
 import { getNearestPoliceStations, PoliceStationInfo } from '../services/policeService';
 import { broadcastToAll, broadcastToIncident } from '../websocket';
 import { EmergencyIncidentRecord } from '../types';
+import { rateLimiter } from '../services/rateLimiter';
 
 export const emergencyRouter = Router();
 
@@ -46,9 +47,9 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
     }
 
     let userId = authUserId || req.body.userId;
-    if (!userId || userId === 'usr_ananya_01' || userId === 'usr_ananya_sharma_01') {
-      const demoUser = await db.queryOne<{ id: string }>('SELECT id FROM users WHERE email = ?', ['demo@nirbhaya.ai']);
-      userId = demoUser ? demoUser.id : 'USR-7F42A91C';
+    if (!userId) {
+      res.status(400).json({ success: false, error: 'User ID is required to create emergency incident.' });
+      return;
     }
 
     const existingDbUser = await db.queryOne<{ id: string; name: string; phone: string; language?: string }>(
@@ -56,8 +57,8 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
       [userId]
     );
     if (!existingDbUser) {
-      const firstUser = await db.queryOne<{ id: string; name: string; phone: string; language?: string }>('SELECT id, name, phone, language FROM users LIMIT 1');
-      userId = firstUser ? firstUser.id : 'USR-7F42A91C';
+      res.status(404).json({ success: false, error: 'User account not found on server.' });
+      return;
     }
 
     const {
@@ -387,11 +388,12 @@ emergencyRouter.post('/create', async (req: Request, res: Response): Promise<voi
   }
 });
 
-// POST /api/emergency/:id/cancel - User Cancels SOS with PIN & Sends False Alarm SMS
-emergencyRouter.post('/:id/cancel', async (req: Request, res: Response): Promise<void> => {
+// POST /api/emergency/:id/cancel - User Cancels SOS with PIN & Sends False Alarm SMS (Rate limited & duress-aware)
+emergencyRouter.post('/:id/cancel', rateLimiter.createMiddleware('CANCEL_SOS'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { pin = '', reason = 'Cancelled by user with PIN' } = req.body;
+    const { ipKey, userKey, ip } = (req as any).securityKeys || {};
 
     const incident = await db.queryOne<any>('SELECT * FROM emergency_incidents WHERE id = ?', [id]);
     if (!incident) {
@@ -401,24 +403,50 @@ emergencyRouter.post('/:id/cancel', async (req: Request, res: Response): Promise
 
     const user = await db.queryOne<any>('SELECT * FROM users WHERE id = ?', [incident.user_id]);
     const storedPinHash = user?.pin_hash;
+    const storedDuressHash = user?.duress_pin_hash;
 
-    // Verify PIN (default is '1234')
-    let pinValid = false;
-    if (storedPinHash) {
-      pinValid = bcrypt.compareSync(pin.trim(), storedPinHash);
-    } else if (pin.trim() === '1234') {
-      pinValid = true;
-    }
+    // 1. Check for Duress PIN (Covert cancellation attempt under threat)
+    if (storedDuressHash && pin && pin.trim().length > 0 && bcrypt.compareSync(pin.trim(), storedDuressHash)) {
+      console.warn(`[Security Alert] SOS Cancellation attempted under DURESS for incident ${id} by user ${user?.id}.`);
+      await logIncidentEvent(id, 'DURESS_CANCEL_ATTEMPT', 'USER', { note: 'Covert distress signal active - Incident maintained' });
+      if (ipKey) rateLimiter.reset(ipKey);
+      if (userKey) rateLimiter.reset(userKey);
 
-    if (!pinValid) {
-      console.warn(`[Emergency] Invalid PIN attempt for incident ${id} (Provided: ${pin})`);
-      await logIncidentEvent(id, 'CANCEL_FAILED_INVALID_PIN', 'USER', { enteredPin: '****' });
-      res.status(401).json({
-        success: false,
-        error: 'Invalid PIN. Emergency cancellation aborted. SOS remains active.',
+      // Respond as success to attacker, but maintain live tracking and active responder dispatch internally
+      res.json({
+        success: true,
+        duress: true,
+        message: 'SOS alert cancelled successfully.',
       });
       return;
     }
+
+    // 2. Verify Standard User PIN
+    let pinValid = false;
+    if (storedPinHash && pin && pin.trim().length > 0) {
+      pinValid = bcrypt.compareSync(pin.trim(), storedPinHash);
+    }
+
+    if (!pinValid) {
+      console.warn(`[Emergency] Invalid PIN attempt for incident ${id}`);
+      await logIncidentEvent(id, 'CANCEL_FAILED_INVALID_PIN', 'USER', { enteredPin: '****' });
+
+      const record = await rateLimiter.recordFailedAttempt(userKey, 'SOS_CANCEL_FAILED_PIN', user?.id || null, ip, { incidentId: id });
+      await rateLimiter.recordFailedAttempt(ipKey, 'SOS_CANCEL_FAILED_PIN', user?.id || null, ip, { incidentId: id });
+
+      res.status(401).json({
+        success: false,
+        error: record.isLocked
+          ? 'Too many failed cancellation attempts. PIN entry locked for 15 minutes.'
+          : `Invalid PIN. Emergency cancellation aborted. ${record.attemptsLeft} attempts remaining.`,
+        attemptsLeft: record.attemptsLeft,
+        isLocked: record.isLocked,
+      });
+      return;
+    }
+
+    if (ipKey) rateLimiter.reset(ipKey);
+    if (userKey) rateLimiter.reset(userKey);
 
     const now = new Date().toISOString();
 
